@@ -4,7 +4,7 @@ Story Compass is a static prototype for discovering YouTube audio stories throug
 
 ## Local development
 
-Serve website/dist on 127.0.0.1 using Python's HTTP server. The page has no build dependencies. Review website/README.md for private test data setup and current feature limits.
+Run `python website/serve_local.py --port 8081` from the repository root. The page has no build dependencies. The local server loads private data from outside dist. Review website/README.md for private test data setup and current feature limits.
 
 ## Research tools
 

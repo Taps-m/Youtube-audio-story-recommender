@@ -13,3 +13,5 @@ __pycache__/
 .env
 .env.*
 node_modules/
+website/release/
+website/qa-*.png

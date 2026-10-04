@@ -2,8 +2,14 @@
 
 Static local prototype. Serve only `dist`, never the repository root: the root contains personal Takeout data.
 
-Use the bundled Python runtime to run `python -m http.server 8080 --bind 127.0.0.1 --directory dist` from this directory, then open http://127.0.0.1:8080.
+Run `python website/serve_local.py --port 8081` from the repository root, then open http://127.0.0.1:8081. Stop the old simple HTTP server first. Personal catalog data is served through a loopback-only endpoint from research/local-page-catalog.json, outside dist.
 
-The ignored local-test-catalog.json contains personal testing selections and loads only on loopback hostnames. Copy research/working-test-catalog.json to dist/local-test-catalog.json for local testing. A clean checkout has an empty catalog. Before any deployment, remove the private file from the upload directory and add a reviewed anonymous catalog through a separate public data source. Raw Takeout files are never needed by the website.
+Public discovery-catalog.json contains general story metadata from official YouTube playlists. It includes no history membership or favorite flags. A clean checkout shows curated suggestions. To prepare personal data, run analyze_history.py, supply the local preferences and catalog-review.json, then run curate_discoveries.py and prepare_test_catalog.py. Discovery candidates are absent from the supplied export, which does not prove the user has never heard them. The 30 local records were manually reviewed for title-based tags; mood and audio quality remain unknown.
 
-Implemented: responsive homepage, confirmed favorites, title-derived genre filters, local feedback and queue, reset, direct YouTube links. Duration filters return an honest empty state until duration is verified. New discoveries are an empty state. No live AI, API credentials, accounts or embedded playback.
+Ranking uses confirmed favorites at triple the weight of explicit likes. Series matches weigh 9, authors 7, specific genres 3 and generic suspense 0.5, multiplied by accumulated affinity. Saved stories get +2; likes get +6; heard stories get -1000 and always sort after unheard choices. Hidden stories stop contributing to the profile and can be restored. Explanations reflect the highest contributing match.
+
+Duration filtering excludes unknown durations and is disabled if none are verified. Playlist duration does not establish current playback availability. History supports Show more; feedback restores focus to the same button or to Collection when a card disappears.
+
+Deploy only the ZIP produced by `python website/package_deploy.py`. The packager rejects every unapproved file and catalog field. It never packages the private endpoint or local profile. Do not upload the repository root. Public deployment intentionally has no personal history profile.
+
+Checks: `node website/test_recommendations.cjs` and `python website/test_deploy.py`. No live AI, accounts or embedded playback yet.

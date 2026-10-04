@@ -1,0 +1,32 @@
+const {chromium}=require('C:/Users/dasta/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const assert=require('node:assert/strict');
+const path=require('node:path');
+(async()=>{
+ const browser=await chromium.launch({channel:'msedge',headless:true});
+ const page=await browser.newPage({viewport:{width:1280,height:900}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('http://127.0.0.1:8082/');await page.waitForSelector('#favorites .card');
+ assert.equal(await page.locator('#favorites .card').count(),3);
+ assert.equal(await page.locator('#discoveries .card').count(),6);
+ assert.equal(await page.locator('#history .card').count(),9);
+ await page.locator('#show-more').click();assert.equal(await page.locator('#history .card').count(),18);
+ const first=page.locator('#history .card').first();const id=await first.getAttribute('data-video');
+ await first.getByRole('button',{name:/More like this/}).click();
+ assert.equal(await page.evaluate(()=>document.activeElement.dataset.video),id,'Focus follows the feedback button after ranking');
+ const likedCard=page.locator('.card[data-video="'+id+'"]');
+ await likedCard.getByRole('button',{name:/Not for me/}).click();
+ assert.equal(await page.evaluate(()=>document.activeElement.id),'collection','Focus is restored when a hidden card disappears');
+ await page.selectOption('#collection','hidden');assert.equal(await page.locator('#history .card').count(),1);
+ await page.getByRole('button',{name:/Restore story/}).click();assert.equal(await page.locator('#history .card').count(),0);
+ await page.selectOption('#collection','all');
+ await page.selectOption('#duration','medium');
+ const durations=await page.locator('.card .meta').allTextContents();assert(durations.every(x=>!x.includes('unverified')),'Time filter excludes unknown durations');
+ await page.selectOption('#duration','any');
+ await page.locator('#favorites .card').first().getByRole('button',{name:/Save:/}).click();
+ await page.selectOption('#collection','saved');assert.equal(await page.locator('.card').count(),1);
+ await page.reload();await page.waitForSelector('#favorites .card');await page.selectOption('#collection','saved');assert.equal(await page.locator('.card').count(),1,'Saved feedback persists');
+ await page.selectOption('#collection','all');await page.screenshot({path:path.join(__dirname,'qa-desktop.png'),fullPage:true});
+ await page.setViewportSize({width:390,height:844});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Mobile has no horizontal overflow');await page.screenshot({path:path.join(__dirname,'qa-mobile.png'),fullPage:true});
+ for(const url of ['/catalog.js','/local-test-catalog.json','/../research/local-page-catalog.json']){const r=await page.request.get('http://127.0.0.1:8082'+url);assert.equal(r.status(),404,'Private static file blocked');}
+ assert.deepEqual(errors,[]);console.log('Passed browser checks: favorites, discoveries, show more, focus, hide/restore, duration, storage, mobile and private-file routes.');
+ await browser.close();
+})().catch(e=>{console.error(e);process.exit(1)});
