@@ -1,0 +1,15 @@
+# Personal exports and derived listening activity
+history/
+research/*.json
+research/Listener Test Profile.md
+website/dist/local-test-catalog.json
+website/dist/catalog.js
+
+# Generated documents and QA output
+*.docx
+tracker_qa*/
+__pycache__/
+.sites-runtime/
+.env
+.env.*
+node_modules/

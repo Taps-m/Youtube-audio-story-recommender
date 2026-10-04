@@ -1,0 +1,19 @@
+# Personalized audio story discovery
+
+Story Compass is a static prototype for discovering YouTube audio stories through listener preferences and feedback. The website code is in website/dist. Homepage Content.md records messaging requirements; build_tracker.py creates the project tracker.
+
+## Local development
+
+Serve website/dist on 127.0.0.1 using Python's HTTP server. The page has no build dependencies. Review website/README.md for private test data setup and current feature limits.
+
+## Research tools
+
+analyze_history.py reads local Takeout exports and extracts keyword candidates. prepare_test_catalog.py prepares local testing records. Both expect the local folder structure documented in their source. They perform keyword processing, not AI inference.
+
+## Repository privacy
+
+Raw history, derived JSON profiles, personal test catalog data and generated documents are excluded from Git. Do not force-add ignored files. Code, documentation and scripts belong in GitHub; private source data stays local. Remove private files from deployment directories before publishing, since ignore rules do not govern manual uploads.
+
+## Planned architecture
+
+Cloudflare Pages for static hosting; local browser storage for feedback; reviewed AI-assisted catalog enrichment during preparation; rule-based browser filtering and ranking. Live AI, accounts and cross-device sync are future work.
