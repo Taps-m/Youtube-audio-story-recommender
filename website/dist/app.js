@@ -9,7 +9,11 @@ async function boot(){
  }
  catalog=[...new Map(catalog.filter(s=>/^[\w-]{11}$/.test(s.video_id)&&typeof s.title==='string').map(s=>[s.video_id,engine.enrich(s)])).values()];
  const KEY='story-compass-feedback-v1';let feedback={},storageAvailable=true,limit=9;
- try{const data=JSON.parse(localStorage.getItem(KEY)||'{}');if(data&&typeof data==='object'&&!Array.isArray(data))feedback=data;}catch{storageAvailable=false;}
+ try{const data=JSON.parse(localStorage.getItem(KEY)||'{}');if(data&&typeof data==='object'&&!Array.isArray(data)){
+  for(const [id,value] of Object.entries(data))if(/^[\w-]{11}$/.test(id)&&value&&typeof value==='object'&&!Array.isArray(value))feedback[id]=Object.fromEntries(['liked','disliked','saved','heard'].map(key=>[key,value[key]===true]));
+ }}catch{storageAvailable=false;}
+ // Keep confirmation visible even when the listener is far below the controls.
+ document.body.append($('status'));
  function persist(){try{localStorage.setItem(KEY,JSON.stringify(feedback));}catch{storageAvailable=false;}}
  function card(s,p,hidden=false){
   const el=document.createElement('article');el.className='card';el.dataset.video=s.video_id;
@@ -26,8 +30,14 @@ async function boot(){
   const actions=document.createElement('div');actions.className='actions';
   const buttons=hidden?[['restore','Restore story']]:[['liked','More like this'],['disliked','Not for me'],['saved','Save'],['heard','Already heard']];
   for(const [field,label] of buttons){
-   const b=document.createElement('button');b.textContent=label;b.dataset.video=s.video_id;b.dataset.action=field;b.setAttribute('aria-label',label+': '+s.title);if(field!=='restore')b.setAttribute('aria-pressed',String(!!feedback[s.video_id]?.[field]));
-   b.onclick=()=>{const f=feedback[s.video_id]||={};if(field==='restore')f.disliked=false;else f[field]=!f[field];if(field==='liked'&&f.liked)f.disliked=false;if(field==='disliked'&&f.disliked)f.liked=false;persist();render({video:s.video_id,action:field});$('status').textContent=storageAvailable?(field==='disliked'?'Story hidden. Restore it from Hidden stories.':'Feedback updated.'):'Feedback updated for this session; storage is unavailable.';};actions.append(b);
+   const b=document.createElement('button');b.type='button';
+   const selected=!!feedback[s.video_id]?.[field];
+   b.textContent=selected?({liked:'Liked ✓',saved:'Saved ✓',heard:'Already heard ✓'}[field]||label):label;
+   b.dataset.video=s.video_id;b.dataset.action=field;b.setAttribute('aria-label',label+': '+s.title);if(field!=='restore')b.setAttribute('aria-pressed',String(selected));
+   b.onclick=()=>{const f=feedback[s.video_id]||={};if(field==='restore')f.disliked=false;else f[field]=!f[field];if(field==='liked'&&f.liked)f.disliked=false;if(field==='disliked'&&f.disliked)f.liked=false;persist();render({video:s.video_id,action:field});
+    const message=field==='restore'?'Story restored.':field==='liked'?(f.liked?'Liked. Your recommendations have been updated.':'Like removed.'):field==='saved'?(f.saved?'Saved. Find it under Collection → Saved for later.':'Removed from Saved for later.'):field==='heard'?(f.heard?'Marked already heard. Removed from new discoveries and ranked after unheard stories.':'Already heard mark removed.'):'Story hidden. Restore it under Collection → Hidden stories.';
+    $('status').textContent=message+(storageAvailable?'':' Browser storage is unavailable; this change lasts for this session.');
+   };actions.append(b);
   }el.append(actions);return el;
  }
  function render(focus){

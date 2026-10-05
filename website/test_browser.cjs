@@ -25,6 +25,15 @@ const path=require('node:path');
  await page.selectOption('#collection','saved');assert.equal(await page.locator('.card').count(),1);
  await page.reload();await page.waitForSelector('#favorites .card');await page.selectOption('#collection','saved');assert.equal(await page.locator('.card').count(),1,'Saved feedback persists');
  await page.selectOption('#collection','all');await page.screenshot({path:path.join(__dirname,'qa-desktop.png'),fullPage:true});
+ const discovery=page.locator('#discoveries .card').first(),heardId=await discovery.getAttribute('data-video');
+ await discovery.getByRole('button',{name:/Already heard/}).click();
+ assert.equal(await page.locator('#discoveries .card[data-video="'+heardId+'"]').count(),0,'Already heard removes the discovery card');
+ await page.waitForFunction(()=>{const r=document.getElementById('status').getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;});
+ assert.match(await page.locator('#status').textContent(),/Marked already heard/);
+ await page.evaluate(()=>localStorage.setItem('story-compass-feedback-v1',JSON.stringify({PlKCVeT2gRA:'invalid old data'})));
+ await page.reload();await page.waitForSelector('#favorites .card');
+ await page.locator('#favorites .card').first().getByRole('button',{name:/Save:/}).click();
+ assert.equal(await page.locator('#favorites .card').first().getByRole('button',{name:/Save:/}).textContent(),'Saved ✓','Save is visibly selected and corrupt old state cannot break the handler');
  await page.setViewportSize({width:390,height:844});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Mobile has no horizontal overflow');await page.screenshot({path:path.join(__dirname,'qa-mobile.png'),fullPage:true});
  for(const url of ['/catalog.js','/local-test-catalog.json','/../research/local-page-catalog.json']){const r=await page.request.get('http://127.0.0.1:8082'+url);assert.equal(r.status(),404,'Private static file blocked');}
  assert.deepEqual(errors,[]);console.log('Passed browser checks: favorites, discoveries, show more, focus, hide/restore, duration, storage, mobile and private-file routes.');
