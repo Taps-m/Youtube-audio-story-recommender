@@ -96,5 +96,16 @@
  function diversify(list){const out=[],rest=[...list];
   while(rest.length){const last=out[out.length-1],i=last?rest.findIndex(s=>!(s.series||[]).some(x=>(last.series||[]).includes(x))):0;out.push(rest.splice(i<0?0:i,1)[0]);}
   return out;}
- const api={enrich,profile,evaluate,rank,betaSample,rng};root.StoryRecommendations=api;if(typeof module!=='undefined')module.exports=api;
+ function similar(seed,items,feedback){
+  const tags=seed.title_keyword_tags||[];
+  return items.filter(s=>s.video_id!==seed.video_id&&!feedback[s.video_id]?.disliked).map(s=>{
+   const shared=(s.title_keyword_tags||[]).filter(t=>tags.includes(t));
+   const series=(s.series||[]).filter(t=>(seed.series||[]).includes(t));
+   const authors=(s.authors||[]).filter(t=>(seed.authors||[]).includes(t));
+   const specific=shared.filter(t=>t!=='suspense');
+   const score=specific.length*20+shared.filter(t=>t==='suspense').length+series.length*5+authors.length*3;
+   return {story:s,score,shared,series,authors};
+  }).filter(x=>x.shared.length>0).sort((a,b)=>Number(!!feedback[a.story.video_id]?.heard)-Number(!!feedback[b.story.video_id]?.heard)||b.score-a.score||a.story.title.localeCompare(b.story.title));
+ }
+ const api={enrich,profile,evaluate,rank,similar,betaSample,rng};root.StoryRecommendations=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);
