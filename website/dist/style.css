@@ -18,3 +18,5 @@ body{background:var(--bg)}header{position:relative;inset:auto;width:auto;max-wid
 .actions .heart-button{font-size:26px;line-height:1;width:42px;height:38px;padding:4px;border-radius:50%;color:#f4a6b5}
 .actions .heart-button[aria-pressed=true]{background:#592b3b;color:#ffacc3;border-color:#ffacc3}
 @media(max-width:560px){.cards .card{flex-basis: min(300px,85vw)} .carousel-controls button{min-height:44px}}
+/* Continuous movement must not snap back to the nearest card each frame. */
+.cards{scroll-snap-type:none}

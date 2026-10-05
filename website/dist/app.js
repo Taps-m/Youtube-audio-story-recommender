@@ -22,6 +22,22 @@ async function boot(){
   }
   row.before(controls);
   row.addEventListener('keydown',event=>{if(event.target===row&&['ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();row.scrollBy({left:(event.key==='ArrowLeft'?-1:1)*row.clientWidth*.85,behavior:'instant'});}});
+  let hovered=false,resumeAt=0,lastFrame=0,autoplayPaused=false;
+  const toggle=document.createElement('button');toggle.type='button';toggle.textContent='Pause';toggle.setAttribute('aria-label','Pause automatic story movement');toggle.setAttribute('aria-pressed','false');
+  toggle.onclick=()=>{autoplayPaused=!autoplayPaused;toggle.textContent=autoplayPaused?'Play':'Pause';toggle.setAttribute('aria-label',(autoplayPaused?'Resume':'Pause')+' automatic story movement');toggle.setAttribute('aria-pressed',String(autoplayPaused));};controls.prepend(toggle);
+  row.addEventListener('mouseenter',()=>{hovered=true;});row.addEventListener('mouseleave',()=>{hovered=false;});
+  const pause=()=>{resumeAt=performance.now()+4000;};
+  row.addEventListener('pointerdown',pause);row.addEventListener('wheel',pause,{passive:true});row.addEventListener('keydown',pause);controls.addEventListener('click',pause);
+  const motion=matchMedia('(prefers-reduced-motion: reduce)');
+  function animate(now){
+   const elapsed=Math.min(now-lastFrame,50);lastFrame=now;
+   const max=row.scrollWidth-row.clientWidth;
+   if(!autoplayPaused&&!motion.matches&&!document.hidden&&!hovered&&!row.contains(document.activeElement)&&now>resumeAt&&max>1&&row.getClientRects().length){
+    row.scrollLeft=row.scrollLeft>=max-1?0:row.scrollLeft+elapsed*.035;
+   }
+   requestAnimationFrame(animate);
+  }
+  requestAnimationFrame(animate);
  }
  try{const data=JSON.parse(localStorage.getItem(KEY)||'{}');if(data&&typeof data==='object'&&!Array.isArray(data)){
   for(const [id,value] of Object.entries(data))if(/^[\w-]{11}$/.test(id)&&value&&typeof value==='object'&&!Array.isArray(value))feedback[id]=Object.fromEntries(['liked','disliked','heard'].map(key=>[key,value[key]===true]));
