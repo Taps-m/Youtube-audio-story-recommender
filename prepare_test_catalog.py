@@ -33,6 +33,10 @@ for record in records:
 discovery_path=research/'discovery-candidates.json'
 discoveries=json.loads(discovery_path.read_text(encoding='utf-8')) if discovery_path.exists() else []
 for record in discoveries:record.update(eligible_as_new_discovery=True,history_status='Not found in supplied history',confirmed_favorite=False)
+romance_path=research/'romance-candidates.json'
+if romance_path.exists():
+ existing={r['video_id'] for r in records+discoveries}
+ discoveries.extend(r for r in json.loads(romance_path.read_text(encoding='utf-8')) if r['video_id'] not in existing)
 (research/'local-page-catalog.json').write_text(json.dumps(records+discoveries,ensure_ascii=False,indent=2),encoding='utf-8')
 assert len(records)==30
 assert sum(x['confirmed_favorite'] for x in records)==3

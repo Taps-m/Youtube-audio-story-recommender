@@ -2,9 +2,12 @@
  'use strict';
  const SERIES=[['Byomkesh',/byomkesh|ব্যোমকেশ/i,'detective mystery','Saradindu Bandyopadhyay'],['Feluda',/feluda|ফেলুদা/i,'detective mystery','Satyajit Ray'],['Professor Shonku',/sh[oa]nku|শঙ্কু|শংকু/i,'science fiction','Satyajit Ray'],['Arjun',/^(?:arjun|অর্জুন)(?:\s+series)?$/i,'detective mystery','Samaresh Majumdar'],['Dipkaku O Jhinuk',/dipkaku|দীপকাকু/i,'detective mystery','Sukanta Gangopadhyay'],['Riju',/riju series/i,'spy thriller','Saswati Chowdhury'],['Chanakya',/chanakya|চাণক্য/i,null,'Abhigyan Ganguly']];
  const AUTHORS=[['Saradindu Bandyopadhyay',/s[ah]*radindu|শরদিন্দু/i],['Satyajit Ray',/satyajit (?:ray|roy)|সত্যজিৎ/i],['Samaresh Majumdar',/samaresh majumdar|সমরেশ/i],['Abhik Arjun Dutta',/abhik arjun dutta/i]];
+ // Romance themes manually checked against the official video descriptions.
+ const REVIEWED_ROMANCE=new Set(['IGuYKCiLxc4','RD9DiE-GqI4','piYSiRnd9KA','6sn1U8NZJno']);
  function enrich(story){
   const title=String(story.title||'').replace(/(?:best of )?sunday suspense(?: classics)?/gi,'');
   const tags=new Set(story.reviewed_tags||[]),series=new Set(story.series||[]),authors=new Set(story.authors||[]);
+  if(REVIEWED_ROMANCE.has(story.video_id))tags.add('romance');
   const segments=title.split('|').map(t=>t.trim()).filter(t=>t&&!AUTHORS.some(([,rx])=>rx.test(t)));
   for(const [name,rx,genre,author] of SERIES)if(segments.some(t=>rx.test(t))){series.add(name);if(genre)tags.add(genre);authors.add(author);}
   for(const [name,rx] of AUTHORS)if(rx.test(title))authors.add(name);
