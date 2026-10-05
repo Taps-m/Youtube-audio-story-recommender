@@ -47,7 +47,9 @@ async function boot(){
    (button||$('collection')).focus({preventScroll:true});if(next&&oldTop!==undefined)window.scrollBy(0,next.getBoundingClientRect().top-oldTop);else window.scrollTo(0,scrollY);
   }
  }
- const durations=catalog.some(s=>Number.isFinite(s.duration_minutes)&&s.duration_minutes>0);$('duration').disabled=!durations;$('duration-note').textContent=durations?'Duration filters include only records with verified duration.':'Duration filtering is unavailable until real durations are verified.';
+ const knownDurations=catalog.filter(s=>Number.isFinite(s.duration_minutes)&&s.duration_minutes>0).length;
+ $('duration').disabled=!knownDurations;
+ $('duration-note').textContent=knownDurations===catalog.length&&catalog.length?'Story durations fetched from YouTube.':knownDurations?'Duration filters include only records with verified duration.':'Duration filtering is unavailable until real durations are verified.';
  ['genre','duration','collection'].forEach(id=>$(id).addEventListener('change',()=>{limit=9;render();}));
  $('show-more').onclick=()=>{limit+=9;render();if($('show-more').hidden)$('history-heading').focus();else $('show-more').focus();};
  $('reset').onclick=()=>{feedback={};persist();render();$('status').textContent='Feedback cleared. Your confirmed favorites remain.';};render();

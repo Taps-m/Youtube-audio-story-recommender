@@ -14,6 +14,8 @@ Series detection checks title segments separately from author segments. For exam
 
 Duration filtering excludes unknown durations and is disabled if none are verified. Playlist duration does not establish current playback availability. History supports Show more; feedback restores focus to the same button or to Collection when a card disappears.
 
+Run `python fetch_durations.py` after catalog preparation to retrieve missing durations from YouTube's public player metadata. It reads metadata only, downloads no media, and caches results outside dist in research/duration-cache.json. Subsequent prepare_test_catalog.py runs reuse the cache. Unavailable or live videos retain an unknown duration instead of a guessed value.
+
 Deploy only the ZIP produced by `python website/package_deploy.py`. The packager rejects every unapproved file and catalog field. It never packages the private endpoint or local profile. Do not upload the repository root. Public deployment intentionally has no personal history profile.
 
 Checks: `node website/test_recommendations.cjs` and `python website/test_deploy.py`. No live AI, accounts or embedded playback yet.

@@ -22,11 +22,14 @@ review=json.loads((research/'catalog-review.json').read_text(encoding='utf-8'))
 public_path=R/'website/dist/discovery-catalog.json'
 public=json.loads(public_path.read_text(encoding='utf-8')) if public_path.exists() else []
 metadata={x['video_id']:x for x in public}
+cache_path=research/'duration-cache.json'
+duration_cache=json.loads(cache_path.read_text(encoding='utf-8')) if cache_path.exists() else {}
 assert set(review)=={x['video_id'] for x in records},'Every seed record needs review'
 for record in records:
  checked=review[record['video_id']]
  record.update(reviewed_tags=checked['tags'],authors=checked.get('authors',[]),series=checked.get('series',[]),tag_source='Manual title review; content mood unverified')
  if record['video_id'] in metadata:record['duration_minutes']=metadata[record['video_id']]['duration_minutes']
+ if not record.get('duration_minutes') and record['video_id'] in duration_cache:record['duration_minutes']=duration_cache[record['video_id']]['duration_minutes']
 discovery_path=research/'discovery-candidates.json'
 discoveries=json.loads(discovery_path.read_text(encoding='utf-8')) if discovery_path.exists() else []
 for record in discoveries:record.update(eligible_as_new_discovery=True,history_status='Not found in supplied history',confirmed_favorite=False)
