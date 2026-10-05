@@ -2,10 +2,10 @@
 async function boot(){
  const $=id=>document.getElementById(id),engine=StoryRecommendations;
  let catalog=[],privateLoaded=false,model=null;
- try{const response=await fetch('discovery-catalog.json');if(response.ok)catalog=(await response.json()).map(s=>({...s,eligible_as_new_discovery:true}));}catch{}
+ try{const response=await fetch('discovery-catalog.json',{cache:'no-store'});if(response.ok)catalog=(await response.json()).map(s=>({...s,eligible_as_new_discovery:true}));}catch{}
  if(['localhost','127.0.0.1','::1','[::1]'].includes(location.hostname)){
-  try{const response=await fetch('/__private/catalog');if(response.ok){const data=await response.json();catalog=data;privateLoaded=true;}}catch{}
-  try{const response=await fetch('/__private/model');if(response.ok)model=await response.json();}catch{/* Behavior model is optional. */}
+  try{const response=await fetch('/__private/catalog',{cache:'no-store'});if(response.ok){const data=await response.json();catalog=data;privateLoaded=true;}}catch{}
+  try{const response=await fetch('/__private/model',{cache:'no-store'});if(response.ok)model=await response.json();}catch{/* Behavior model is optional. */}
  }
  catalog=[...new Map(catalog.filter(s=>/^[\w-]{11}$/.test(s.video_id)&&typeof s.title==='string').map(s=>[s.video_id,engine.enrich(s)])).values()];
  const KEY='story-compass-feedback-v1';let feedback={},storageAvailable=true,limit=9;

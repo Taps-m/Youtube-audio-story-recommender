@@ -14,6 +14,9 @@ def private_catalog():
   if row.get('video_id') in stories:row['behavior']=stories[row['video_id']]
  return rows
 class Handler(SimpleHTTPRequestHandler):
+ def end_headers(self):
+  self.send_header('Cache-Control','no-store')
+  super().end_headers()
  def __init__(self,*args,**kwargs):super().__init__(*args,directory=str(ROOT/'dist'),**kwargs)
  def send_json(self,value):
   data=json.dumps(value,ensure_ascii=False).encode('utf-8');self.send_response(200);self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
