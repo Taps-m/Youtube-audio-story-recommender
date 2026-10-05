@@ -1,10 +1,11 @@
 'use strict';
 async function boot(){
  const $=id=>document.getElementById(id),engine=StoryRecommendations;
- let catalog=[],privateLoaded=false;
+ let catalog=[],privateLoaded=false,model=null;
  try{const response=await fetch('discovery-catalog.json');if(response.ok)catalog=(await response.json()).map(s=>({...s,eligible_as_new_discovery:true}));}catch{}
  if(['localhost','127.0.0.1','::1','[::1]'].includes(location.hostname)){
   try{const response=await fetch('/__private/catalog');if(response.ok){const data=await response.json();catalog=data;privateLoaded=true;}}catch{}
+  try{const response=await fetch('/__private/model');if(response.ok)model=await response.json();}catch{/* Behavior model is optional. */}
  }
  catalog=[...new Map(catalog.filter(s=>/^[\w-]{11}$/.test(s.video_id)&&typeof s.title==='string').map(s=>[s.video_id,engine.enrich(s)])).values()];
  const KEY='story-compass-feedback-v1';let feedback={},storageAvailable=true,limit=9;
@@ -31,11 +32,11 @@ async function boot(){
  }
  function render(focus){
   const active=document.activeElement,scrollY=window.scrollY,anchor=focus?active?.closest('.card'):null,oldTop=anchor?.getBoundingClientRect().top;
-  const genre=$('genre').value,duration=$('duration').value,collection=$('collection').value,p=engine.profile(catalog,feedback);
+  const genre=$('genre').value,duration=$('duration').value,collection=$('collection').value,p=engine.profile(catalog,feedback,model),today=new Date().toISOString().slice(0,10);
   const items=catalog.filter(s=>(genre==='all'||s.title_keyword_tags.includes(genre))&&(collection!=='saved'||feedback[s.video_id]?.saved)&&(duration==='any'||(Number.isFinite(s.duration_minutes)&&(duration==='medium'?s.duration_minutes>=30&&s.duration_minutes<=60:s.duration_minutes>60))));
   const visible=items.filter(s=>!feedback[s.video_id]?.disliked),hidden=collection==='hidden';
   const favorites=hidden?[]:visible.filter(s=>s.confirmed_favorite);
-  const discoveries=hidden?[]:engine.rank(visible.filter(s=>s.eligible_as_new_discovery&&!feedback[s.video_id]?.heard),p,feedback);
+  const discoveries=hidden?[]:engine.rank(visible.filter(s=>s.eligible_as_new_discovery&&!feedback[s.video_id]?.heard),p,feedback,{explore:true,seed:today,diversify:true});
   const allHistory=hidden?engine.rank(items.filter(s=>feedback[s.video_id]?.disliked),p,feedback):engine.rank(visible.filter(s=>!s.confirmed_favorite&&(!s.eligible_as_new_discovery||feedback[s.video_id]?.heard)),p,feedback);
   for(const [id,list] of [['favorites',favorites],['discoveries',discoveries.slice(0,6)],['history',allHistory.slice(0,limit)]]){
    const container=$(id);container.replaceChildren();if(!list.length){const message=document.createElement('p');message.className='empty';message.textContent=id==='discoveries'?'No new candidates match these controls. Try another story type.':hidden&&id==='history'?'No hidden stories.':'No stories match these controls.';container.append(message);}else list.forEach(s=>container.append(card(s,p,hidden&&id==='history')));

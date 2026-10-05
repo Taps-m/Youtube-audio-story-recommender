@@ -1,20 +1,72 @@
 const assert=require('node:assert/strict');
 const e=require('./dist/recommendations.js');
-const favorite=e.enrich({video_id:'favorite001',title:'Sunday Suspense | Byomkesh | Saradindu Bandyopadhyay',confirmed_favorite:true});
-const related=e.enrich({video_id:'related0001',title:'Byomkesh | Saradindu Bandyopadhyay'});
-const generic=e.enrich({video_id:'generic0001',title:'A suspense story'});
+const favorite=e.enrich({video_id:'favorite001',title:'Sunday Suspense | Byomkesh | Saradindu Bandyopadhyay',confirmed_favorite:true,channel:'Mirchi Bangla'});
+const related=e.enrich({video_id:'related0001',title:'Byomkesh | Saradindu Bandyopadhyay',channel:'Mirchi Bangla'});
+const generic=e.enrich({video_id:'generic0001',title:'A suspense story',channel:'Other'});
 const plain=e.enrich({video_id:'plain000001',title:'Sunday Suspense | A literary story'});
 const shonku=e.enrich({video_id:'shonku00001',title:'Prof Shonku O Moru Rahasya'});
-const unrelated=e.enrich({video_id:'other000001',title:'Romantic Premer Golpo'});
+const unrelated=e.enrich({video_id:'other000001',title:'Romantic Premer Golpo',channel:'Kahon'});
+const score=(s,p,f={},o)=>e.evaluate(s,p,f,o).score;
+
+// Tagging
 assert(!plain.title_keyword_tags.includes('suspense'),'Show branding must not become a genre');
 assert(shonku.title_keyword_tags.includes('science fiction'));
 assert(shonku.authors.includes('Satyajit Ray'));
-let profile=e.profile([favorite,related,generic],{});
-assert.equal(profile.series.get('Byomkesh'),3,'Confirmed favorites are strong signals without a like click');
-assert(e.evaluate(related,profile,{}).score>e.evaluate(generic,profile,{}).score);
-assert.equal(e.evaluate(related,profile,{}).reason,'Because you like Byomkesh.');
-assert.equal(e.rank([related,unrelated],profile,{related0001:{heard:true}})[1].video_id,related.video_id,'Heard stories go below unheard choices');
-assert.equal(e.evaluate(related,profile,{related0001:{saved:true}}).score-e.evaluate(related,profile,{}).score,2);
-assert.equal(e.profile([favorite],{favorite001:{disliked:true}}).series.size,0,'Hidden favorite stops influencing taste');
-assert.equal(e.profile([favorite],{favorite001:{disliked:false}}).series.get('Byomkesh'),3);
-console.log('Passed ranking, reasons, tagging, heard penalty, save boost and hidden-favorite restoration checks.');
+
+// Favorites shape taste without any click
+const catalog=[favorite,related,generic,unrelated];
+let p=e.profile(catalog,{});
+assert(p.beliefs.get('series:Byomkesh').a===3,'Confirmed favorite adds 3 units of evidence');
+assert(score(related,p)>score(generic,p),'Series match beats a generic story');
+assert(score(related,p)>score(unrelated,p));
+assert.match(e.evaluate(related,p,{}).reason,/you like Byomkesh/);
+for(const s of catalog){const x=score(s,p);assert(x>0&&x<1,'Scores are probabilities');}
+assert(score(favorite,p)>=0.95,'Confirmed favorites stay near certain');
+
+// Explicit feedback
+assert(score(related,p,{related0001:{saved:true}})>score(related,p),'Save raises probability');
+const liked=e.profile(catalog,{other000001:{liked:true}});
+assert(score(unrelated,liked,{other000001:{liked:true}})>score(unrelated,p),'Like raises probability');
+assert.equal(e.rank([related,unrelated],p,{related0001:{heard:true}})[1].video_id,related.video_id,'Heard stories go below unheard choices');
+
+// Hiding a favorite turns its evidence negative instead of positive
+const hidden=e.profile(catalog,{favorite001:{disliked:true}});
+assert(hidden.beliefs.get('series:Byomkesh').b>hidden.beliefs.get('series:Byomkesh').a);
+assert(score(related,hidden)<score(related,p),'Hidden favorite stops boosting its series');
+assert(score(related,hidden)<0.5,'Hidden favorite pushes its series below neutral');
+
+// Common genres count less than rare ones (inverse document frequency)
+const many=Array.from({length:20},(_,i)=>e.enrich({video_id:'common'+String(i).padStart(5,'0'),title:'A thriller story '+i}));
+const rare=e.enrich({video_id:'rarehorror1',title:'A horror story',channel:'X'});
+const idfP=e.profile([...many,rare],{});
+assert(idfP.idf.get('genre:horror')>idfP.idf.get('genre:suspense'),'Rare genre gets higher weight');
+
+// Behavior from listening history (fit_preferences.py) separates stories with equal content
+const a={...related,video_id:'behavior001',behavior:{behavior_logit:1.2,return_days:6}};
+const b={...related,video_id:'behavior002',behavior:{behavior_logit:-0.8,return_days:1}};
+assert.equal(e.rank([b,a],p,{})[0].video_id,'behavior001','Returning on many days ranks higher');
+assert.match(e.evaluate({...generic,behavior:{behavior_logit:2,return_days:7}},p,{}).reason,/came back to this on 7 different days/);
+const withDays=e.profile([{...favorite,confirmed_favorite:false,behavior:{return_days:10}}],{});
+assert(Math.abs(withDays.beliefs.get('series:Byomkesh').a-1.5)<1e-9,'Return-day evidence is capped');
+
+const weak={...related,video_id:'weakstory01',behavior:{behavior_logit:-6,return_days:1}};
+assert(score(weak,p)<0.5);assert.match(e.evaluate(weak,p,{}).reason,/^Mixed match/,'Below-50% stories never claim a strong match');
+
+// Head-to-head (Bradley-Terry) scores from the offline model shift attributes
+const theta=e.profile(catalog,{},{entity_theta:{'channel:Kahon':-1.5}});
+assert(score(unrelated,theta)<score(unrelated,p),'Negative head-to-head score lowers probability');
+
+// Thompson sampling: deterministic for a seed, varies across seeds, Beta sampler is sane
+const o1={explore:true,seed:'2026-10-05'};
+assert.equal(score(related,p,{},o1),score(related,p,{},o1),'Same day gives the same sample');
+const samples=new Set(['a','b','c','d','e'].map(seed=>score(related,p,{},{explore:true,seed})));
+assert(samples.size>1,'Different days explore differently');
+const r=e.rng('beta-check');let m=0;for(let i=0;i<4000;i++)m+=e.betaSample(4,2,r);m/=4000;
+assert(Math.abs(m-4/6)<0.02,'Beta(4,2) sample mean is about 0.667, got '+m.toFixed(3));
+
+// Diversity keeps the same series from stacking back to back
+const s2={...related,video_id:'related0002'},s3={...unrelated,video_id:'other000002'};
+const div=e.rank([related,s2,s3],p,{},{diversify:true});
+assert.notDeepEqual(div[0].series,div[1].series,'Second slot goes to a different series');
+
+console.log('Passed tagging, probability scoring, feedback overrides, IDF, behavior, head-to-head, Thompson sampling and diversity checks.');

@@ -8,7 +8,7 @@ Run `python website/serve_local.py --port 8081` from the repository root. The pa
 
 ## Research tools
 
-analyze_history.py reads local Takeout exports and extracts keyword candidates. prepare_test_catalog.py prepares local testing records. Both expect the local folder structure documented in their source. They perform keyword processing, not AI inference.
+analyze_history.py reads local Takeout exports and extracts keyword candidates. prepare_test_catalog.py prepares local testing records. Both expect the local folder structure documented in their source. They perform keyword processing, not AI inference. fit_preferences.py infers listening attempts from Takeout gaps (completed, quick skip or censored), estimates completion with hierarchical Beta shrinkage and head-to-head preferences with a Bradley-Terry model, fits a Bayesian logistic model with leave-one-out evaluation, and writes private outputs to research/ (git-ignored). Takeout records only when a video was opened, so listening time is inferred, not measured.
 
 ## Repository privacy
 
