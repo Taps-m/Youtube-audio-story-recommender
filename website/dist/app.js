@@ -12,6 +12,17 @@ async function boot(){
  const similarSection=document.createElement('section');similarSection.id='similar-section';similarSection.hidden=true;
  similarSection.innerHTML='<div class="section-head"><h2 id="similar-heading" tabindex="-1">Similar stories</h2><button id="clear-similar" type="button">Back to recommendations</button></div><p id="similar-context" class="muted"></p><div id="similar-results" class="cards"></div><button id="more-similar" type="button" hidden>Show more similar stories</button>';
  document.querySelector('.workspace').after(similarSection);
+ // Each row supports touch/trackpad scrolling, keyboard navigation and arrows.
+ for(const row of document.querySelectorAll('.cards')){
+  const controls=document.createElement('div');controls.className='carousel-controls';
+  row.tabIndex=0;row.setAttribute('role','region');row.setAttribute('aria-label',row.id+' story carousel');
+  for(const [direction,label] of [[-1,'Previous stories'],[1,'Next stories']]){
+   const button=document.createElement('button');button.type='button';button.textContent=direction<0?'←':'→';button.setAttribute('aria-label',label);button.setAttribute('aria-controls',row.id);
+   button.onclick=()=>row.scrollBy({left:direction*row.clientWidth*.85,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});controls.append(button);
+  }
+  row.before(controls);
+  row.addEventListener('keydown',event=>{if(event.target===row&&['ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();row.scrollBy({left:(event.key==='ArrowLeft'?-1:1)*row.clientWidth*.85,behavior:'instant'});}});
+ }
  try{const data=JSON.parse(localStorage.getItem(KEY)||'{}');if(data&&typeof data==='object'&&!Array.isArray(data)){
   for(const [id,value] of Object.entries(data))if(/^[\w-]{11}$/.test(id)&&value&&typeof value==='object'&&!Array.isArray(value))feedback[id]=Object.fromEntries(['liked','disliked','heard'].map(key=>[key,value[key]===true]));
  }}catch{storageAvailable=false;}
@@ -31,11 +42,12 @@ async function boot(){
   const reason=document.createElement('p');reason.className='reason';reason.textContent=engine.evaluate(s,p,feedback).reason;el.append(reason);
   const a=document.createElement('a');a.className='listen';a.textContent='Listen on YouTube';a.href='https://www.youtube.com/watch?v='+s.video_id;a.target='_blank';a.rel='noopener noreferrer';el.append(a);
   const actions=document.createElement('div');actions.className='actions';
-  const buttons=hidden?[['restore','Restore story']]:[['similar','More like this'],['disliked','Not for me'],['heard','Already heard']];
+  const buttons=hidden?[['restore','Restore story']]:[['liked','Like'],['similar','More like this'],['disliked','Not for me'],['heard','Already heard']];
   for(const [field,label] of buttons){
    const b=document.createElement('button');b.type='button';
    const selected=!!feedback[s.video_id]?.[field];
-   b.textContent=selected?({liked:'Liked ✓',saved:'Saved ✓',heard:'Already heard ✓'}[field]||label):label;
+   b.textContent=field==='liked'?(selected?'♥':'♡'):selected?({heard:'Already heard ✓'}[field]||label):label;
+   if(field==='liked'){b.className='heart-button';b.title=selected?'Remove like':'Like this story';}
    b.dataset.video=s.video_id;b.dataset.action=field;b.setAttribute('aria-label',label+': '+s.title);if(field!=='restore'&&field!=='similar')b.setAttribute('aria-pressed',String(selected));
    b.onclick=()=>{if(field==='similar'){similarSeed=s;similarLimit=6;$('genre').value='all';$('collection').value='all';render();$('similar-heading').focus({preventScroll:true});similarSection.scrollIntoView({block:'start',behavior:'instant'});$('status').textContent='Showing similar genres. Your duration preference is still applied.';return;}
     const f=feedback[s.video_id]||={};if(field==='restore')f.disliked=false;else f[field]=!f[field];if(field==='liked'&&f.liked)f.disliked=false;if(field==='disliked'&&f.disliked)f.liked=false;persist();render({video:s.video_id,action:field});
@@ -46,6 +58,7 @@ async function boot(){
  }
  function render(focus){
   const active=document.activeElement,scrollY=window.scrollY,anchor=focus?active?.closest('.card'):null,oldTop=anchor?.getBoundingClientRect().top;
+  const rowPositions=new Map([...document.querySelectorAll('.cards')].map(row=>[row.id,row.scrollLeft]));
   const genre=$('genre').value,duration=$('duration').value,collection=$('collection').value,p=engine.profile(catalog,feedback,model),today=new Date().toISOString().slice(0,10);
   const items=catalog.filter(s=>(genre==='all'||s.title_keyword_tags.includes(genre))&&(duration==='any'||(Number.isFinite(s.duration_minutes)&&(duration==='medium'?s.duration_minutes>=30&&s.duration_minutes<=60:s.duration_minutes>60))));
   similarSection.hidden=!similarSeed;
@@ -66,6 +79,7 @@ async function boot(){
   }
   $('history-heading').textContent=hidden?'Hidden stories':privateLoaded?'Pick up a familiar thread':'Stories you marked already heard';$('history-note').textContent=hidden?'Restore any story to bring it back.':privateLoaded?'Previously opened · enjoyment unconfirmed':'Based on feedback in this browser';
   $('favorite-count').textContent=favorites.length+' shown';$('show-more').hidden=allHistory.length<=limit;$('show-more').textContent='Show more ('+(allHistory.length-limit)+' remaining)';
+  for(const row of document.querySelectorAll('.cards'))row.scrollLeft=rowPositions.get(row.id)||0;
   if(focus){const next=[...document.querySelectorAll('.card')].find(c=>c.dataset.video===focus.video),button=next?[...next.querySelectorAll('button')].find(b=>b.dataset.action===focus.action):null;
    (button||$('collection')).focus({preventScroll:true});if(next&&oldTop!==undefined)window.scrollBy(0,next.getBoundingClientRect().top-oldTop);else window.scrollTo(0,scrollY);
   }

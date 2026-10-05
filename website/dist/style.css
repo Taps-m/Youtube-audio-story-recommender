@@ -9,3 +9,12 @@ body{background:var(--bg)}header{position:relative;inset:auto;width:auto;max-wid
 
 #show-more{margin-top:20px}select:disabled{opacity:.65;cursor:not-allowed}.discover .cards{margin-top:24px}.discover{padding-right:30px}.discover .discovery-mark{pointer-events:none}.actions button{font-size:14px}.details summary{font-size:16px}
 #status:not(:empty){position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:1000;width:max-content;max-width:calc(100vw - 32px);padding:14px 20px;background:#c8efc9;color:#102118;border:1px solid #8fe0ac;border-radius:8px;box-shadow:0 6px 24px #0006;font-size:15px;line-height:1.5;pointer-events:none}.actions button[aria-pressed=true]{background:#c8efc9;color:#102118;border-color:#8fe0ac;font-weight:700}
+/* Horizontal story shelves: move with arrows, swipe, trackpad or keyboard. */
+.cards{display:flex;gap:16px;overflow-x:auto;scroll-snap-type:x proximity;overscroll-behavior-x:contain;padding:6px 3px 16px;scrollbar-color:#8fe0ac #18231e;scrollbar-width:thin}
+.cards .card{flex:0 0 300px;min-width:0;scroll-snap-align:start}
+.cards .empty{flex:1;min-width:0}
+.carousel-controls{display:flex;justify-content:flex-end;gap:8px;margin:0 0 8px}
+.carousel-controls button{font-size:22px;padding:3px 14px;line-height:1.4}
+.actions .heart-button{font-size:26px;line-height:1;width:42px;height:38px;padding:4px;border-radius:50%;color:#f4a6b5}
+.actions .heart-button[aria-pressed=true]{background:#592b3b;color:#ffacc3;border-color:#ffacc3}
+@media(max-width:560px){.cards .card{flex-basis: min(300px,85vw)} .carousel-controls button{min-height:44px}}
