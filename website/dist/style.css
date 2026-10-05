@@ -20,3 +20,6 @@ body{background:var(--bg)}header{position:relative;inset:auto;width:auto;max-wid
 @media(max-width:560px){.cards .card{flex-basis: min(300px,85vw)} .carousel-controls button{min-height:44px}}
 /* Continuous movement must not snap back to the nearest card each frame. */
 .cards{scroll-snap-type:none}
+/* Keep horizontal scrolling without displaying a scrollbar below the cards. */
+.cards{scrollbar-width:none}
+.cards::-webkit-scrollbar{display:none}
