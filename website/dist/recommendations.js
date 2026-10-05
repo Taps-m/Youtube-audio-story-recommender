@@ -78,7 +78,7 @@
   const strong=top&&top.evidence>=STRONG_EVIDENCE;
   let reason;
   if(f.disliked)reason='You marked this story not for you.';
-  else if(s.confirmed_favorite)reason='You told us you enjoyed this story.';
+  else if(s.confirmed_favorite)reason='From your YouTube history.';
   else if(f.liked)reason='You asked for more like this.';
   else if(behavior>0&&behavior>=(top?.term||0))reason='Your history records openings on '+s.behavior.return_days+' different days. This is a weak interest signal.';
   else if(top&&top.term>0&&probability<0.5)reason='Mixed match: you like '+top.value+', but other signals for this story are weaker.';

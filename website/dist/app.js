@@ -18,7 +18,7 @@ async function boot(){
   const scene=document.createElement('span');scene.className='cover-scene';cover.append(scene);
   const word=document.createElement('span');word.className='cover-word';word.textContent=s.title.replace(/^Sunday Suspense(?: Classics)?\s*\|\s*/,'').split('|')[0].trim();
   const symbol=document.createElement('span');symbol.className='cover-symbol';symbol.textContent='◈';cover.append(word,symbol);el.append(cover);
-  const badge=document.createElement('div');badge.className='badge';badge.textContent=hidden?'HIDDEN':s.confirmed_favorite?'CONFIRMED FAVORITE':!privateLoaded?'CURATED SUGGESTION':s.eligible_as_new_discovery?'DISCOVERY CANDIDATE':'PREVIOUSLY OPENED';el.append(badge);
+  const badge=document.createElement('div');badge.className='badge';badge.textContent=hidden?'HIDDEN':s.confirmed_favorite?'FROM YOUR HISTORY':!privateLoaded?'CURATED SUGGESTION':s.eligible_as_new_discovery?'DISCOVERY CANDIDATE':'PREVIOUSLY OPENED';el.append(badge);
   const h=document.createElement('h3');h.textContent=s.title.replace(/^Sunday Suspense(?: Classics)?\s*\|\s*/,'');el.append(h);
   const meta=document.createElement('div');meta.className='meta';meta.textContent=s.channel+' · '+(s.duration_minutes?Math.round(s.duration_minutes)+' min':'Duration unverified');el.append(meta);
   const reason=document.createElement('p');reason.className='reason';reason.textContent=engine.evaluate(s,p,feedback).reason;el.append(reason);
