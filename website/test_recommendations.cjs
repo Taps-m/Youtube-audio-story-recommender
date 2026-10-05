@@ -12,6 +12,13 @@ const score=(s,p,f={},o)=>e.evaluate(s,p,f,o).score;
 assert(!plain.title_keyword_tags.includes('suspense'),'Show branding must not become a genre');
 assert(shonku.title_keyword_tags.includes('science fiction'));
 assert(shonku.authors.includes('Satyajit Ray'));
+const romanceAuthor=e.enrich({video_id:'author00001',title:'Biswa Mitra Upakhyan | Abhik Arjun Dutta | Romantic Premer Golpo'});
+assert(!romanceAuthor.series.includes('Arjun'));
+assert(!romanceAuthor.authors.includes('Samaresh Majumdar'));
+assert(!romanceAuthor.title_keyword_tags.includes('detective mystery'));
+const arjun=e.enrich({video_id:'arjun000001',title:'Arjun | Hishebe Bhul Chhilo | Samaresh Majumdar'});
+assert(arjun.series.includes('Arjun'));
+assert(e.enrich({title:'অর্জুন | একটি গল্প'}).series.includes('Arjun'));
 
 // Favorites shape taste without any click
 const catalog=[favorite,related,generic,unrelated];
@@ -42,19 +49,30 @@ const idfP=e.profile([...many,rare],{});
 assert(idfP.idf.get('genre:horror')>idfP.idf.get('genre:suspense'),'Rare genre gets higher weight');
 
 // Behavior from listening history (fit_preferences.py) separates stories with equal content
-const a={...related,video_id:'behavior001',behavior:{behavior_logit:1.2,return_days:6}};
-const b={...related,video_id:'behavior002',behavior:{behavior_logit:-0.8,return_days:1}};
+const a={...related,video_id:'behavior001',behavior:{inference_version:2,behavior_logit:0.2,return_days:6}};
+const b={...related,video_id:'behavior002',behavior:{inference_version:2,behavior_logit:-0.2,return_days:1}};
 assert.equal(e.rank([b,a],p,{})[0].video_id,'behavior001','Returning on many days ranks higher');
-assert.match(e.evaluate({...generic,behavior:{behavior_logit:2,return_days:7}},p,{}).reason,/came back to this on 7 different days/);
+assert.match(e.evaluate({...generic,behavior:{inference_version:2,behavior_logit:0.2,return_days:7}},p,{}).reason,/openings on 7 different days/);
 const withDays=e.profile([{...favorite,confirmed_favorite:false,behavior:{return_days:10}}],{});
-assert(Math.abs(withDays.beliefs.get('series:Byomkesh').a-1.5)<1e-9,'Return-day evidence is capped');
+assert(Math.abs(withDays.beliefs.get('series:Byomkesh').a-0.5)<1e-9,'Return-day evidence is weak and capped');
 
 const weak={...related,video_id:'weakstory01',behavior:{behavior_logit:-6,return_days:1}};
-assert(score(weak,p)<0.5);assert.match(e.evaluate(weak,p,{}).reason,/^Mixed match/,'Below-50% stories never claim a strong match');
+assert.equal(score(weak,p),score({...weak,behavior:undefined},p),'Legacy gap-derived model scores are ignored');
+const likedWeak={...weak,behavior:{inference_version:2,behavior_logit:-100,return_days:30,skipped:100}};
+assert(score(likedWeak,p,{weakstory01:{liked:true}})>=0.85,'Direct likes override inferred negative behavior');
+assert.equal(score(likedWeak,p,{weakstory01:{liked:true}}),score({...likedWeak,behavior:undefined},p,{weakstory01:{liked:true}}));
+const dislikedReturns={...favorite,behavior:{inference_version:2,return_days:500,behavior_logit:100}};
+const negative=e.profile([dislikedReturns],{favorite001:{disliked:true,saved:true,liked:true}});
+assert.equal(negative.beliefs.get('series:Byomkesh').a,0,'Dislike eliminates positive history and stale saved evidence');
+assert.equal(negative.beliefs.get('series:Byomkesh').b,2);
+assert(score(dislikedReturns,negative,{favorite001:{disliked:true}})<=0.05);
+const skipOnly=e.profile([{...related,behavior:{skipped:100}}],{});
+assert.equal(skipOnly.beliefs.size,0,'Inferred skips must not become dislikes');
 
 // Head-to-head (Bradley-Terry) scores from the offline model shift attributes
-const theta=e.profile(catalog,{},{entity_theta:{'channel:Kahon':-1.5}});
+const theta=e.profile(catalog,{},{evidence_source:'explicit_feedback',entity_theta:{'channel:Kahon':-1.5}});
 assert(score(unrelated,theta)<score(unrelated,p),'Negative head-to-head score lowers probability');
+assert.equal(score(unrelated,e.profile(catalog,{},{entity_theta:{'channel:Kahon':-100}})),score(unrelated,p),'Legacy skip-pair entity scores are ignored');
 
 // Thompson sampling: deterministic for a seed, varies across seeds, Beta sampler is sane
 const o1={explore:true,seed:'2026-10-05'};

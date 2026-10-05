@@ -2,34 +2,34 @@
 """Fit a Bayesian logistic preference model from local YouTube Takeout history.
 
 Reads private data under history/ and research/ and writes research/preference-model.json
-(git-ignored). Takeout records only when a video was opened, so listening time is inferred
-from the gap to the next YouTube event and treated as censored where it is ambiguous.
+(git-ignored). Takeout records openings, not listening time. Gap-derived estimates are
+uncertain diagnostics only; ranking uses weak, capped return-day and recency signals.
 """
 import json, re, math, collections
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import numpy as np
+import sys
 
 ROOT = Path(__file__).parent
 TK = ROOT / 'history/Takeout/YouTube and YouTube Music'
 IST = timezone(timedelta(hours=5, minutes=30))
 STRONG = re.compile(r'sunday suspense|bengali audio story|bangla audio story|audio story|audiostory|goyenda golpo', re.I)
 EXCL = re.compile(r'short film|trailer|reaction|review|#shorts', re.I)
-SKIP_WINDOW = 5      # min: another story opened this soon = deliberate skip
+SKIP_WINDOW = 5      # Diagnostic only: quick transition, not a confirmed skip
 AMBIG_WINDOW = 5     # min: non-story event this soon = ambiguous (other device, navigation)
 CHAIN_HOURS = 48     # reopens within this window are one listening attempt
 KAPPA = 4.0          # shrinkage strength toward the parent group
 PU_WEIGHT = 0.1      # weight of unlabeled stories treated as weak negatives
 WATCH_LATER_WEIGHT = 0.5
 PRIORS = {  # name: (mean, sd) on standardized features
-    'intercept': (-0.85, 1.0), 'completion': (1.0, 0.5), 'return_days': (0.8, 0.5),
-    'bt_preference': (1.0, 0.5), 'skip_rate': (-0.7, 0.5), 'recency': (0.3, 0.3)}
+    'intercept': (-0.85, 1.0), 'return_days': (0.8, 0.5), 'recency': (0.3, 0.3)}
 FEATURES = list(PRIORS)[1:]
 
 SERIES = [('Byomkesh', r'byomkesh|ব্যোমকেশ', 'detective mystery', 'Saradindu Bandyopadhyay'),
           ('Feluda', r'feluda|ফেলুদা', 'detective mystery', 'Satyajit Ray'),
           ('Professor Shonku', r'sh[oa]nku|শঙ্কু|শংকু', 'science fiction', 'Satyajit Ray'),
-          ('Arjun', r'\barjun\b|অর্জুন', 'detective mystery', 'Samaresh Majumdar'),
+          ('Arjun', r'^(?:arjun|অর্জুন)(?:\s+series)?$', 'detective mystery', 'Samaresh Majumdar'),
           ('Dipkaku O Jhinuk', r'dipkaku|দীপকাকু', 'detective mystery', 'Sukanta Gangopadhyay'),
           ('Riju', r'riju series', 'spy thriller', 'Saswati Chowdhury'),
           ('Chanakya', r'chanakya|চাণক্য', None, 'Abhigyan Ganguly')]
@@ -53,8 +53,9 @@ def enrich(v, t, ch, review):
     clean = re.sub(r'(?:best of )?sunday suspense(?: classics)?', '', t, flags=re.I)
     r = review.get(v, {})
     series, authors, genres = set(r.get('series', [])), set(r.get('authors', [])), set(r.get('tags', []))
+    segments = [part.strip() for part in clean.split('|') if part.strip() and not any(re.search(rx, part, re.I) for _, rx in AUTHORS)]
     for name, rx, g, a in SERIES:
-        if re.search(rx, clean, re.I): series.add(name); authors.add(a); g and genres.add(g)
+        if any(re.search(rx, part, re.I) for part in segments): series.add(name); authors.add(a); g and genres.add(g)
     for name, rx in AUTHORS:
         if re.search(rx, clean, re.I): authors.add(name)
     if not r.get('tags'):
@@ -159,12 +160,13 @@ def main():
     p_complete = hierarchy('completed', lambda s: s['completed'] + s['abandoned'])
     skip_rate = hierarchy('abandoned', lambda s: s['attempts'])
 
-    # Bradley-Terry over series / author / genre / channel entities from skip pairs
+    # Timing diagnostics do not establish preference between two stories.
     def ents(v):
         s = stories.get(v)
         return [] if not s else ['series:' + x for x in s['series']] + ['author:' + x for x in s['authors']] + \
                ['genre:' + x for x in s['genres']] + ['channel:' + s['channel']]
-    pairs = [(a, b) for a, b in pairs if a in stories and b in stories and a != b]
+    diagnostic_pair_count = len(pairs)
+    pairs = []  # No head-to-head training from inferred quick transitions.
     theta = collections.defaultdict(float)
     for _ in range(800):
         grad = collections.defaultdict(float)
@@ -177,8 +179,7 @@ def main():
     bt = {v: sum(theta[e] for e in ents(v)) for v in stories}
 
     ids = sorted(stories)
-    raw = np.array([[logit(min(max(p_complete[v], 0.02), 0.98)), math.log1p(stories[v]['days']), bt[v],
-                     skip_rate[v], math.exp(-stories[v]['age_days'] / 90)] for v in ids])
+    raw = np.array([[math.log1p(stories[v]['days']), math.exp(-stories[v]['age_days'] / 90)] for v in ids])
     mean, sd = raw.mean(0), raw.std(0); sd[sd == 0] = 1
     X = np.hstack([np.ones((len(ids), 1)), (raw - mean) / sd])
     y = np.array([1.0 if v in favorites or v in watch_later else 0.0 for v in ids])
@@ -215,16 +216,16 @@ def main():
 
     probs = sigmoid(X @ beta); order = np.argsort(-probs)
     result = {
-        'note': 'Private: derived from personal watch history. Do not publish.',
+        'note': 'Private. Gap-derived completion and abandonment are uncertain diagnostics, not observed listening outcomes. Ranking uses only weak return-day and recency signals. Do not publish.',
         'data': {'story_videos': len(ids), 'listening_attempts': sum(outcome_counts.values()), 'outcomes': dict(outcome_counts),
-                 'with_known_duration': sum(1 for v in ids if stories[v]['duration']), 'skip_pairs': len(pairs),
+                 'with_known_duration': sum(1 for v in ids if stories[v]['duration']), 'diagnostic_quick_transition_pairs': diagnostic_pair_count, 'skip_pairs_used_for_training': 0,
                  'labels': {'favorites': int(sum(1 for v in ids if v in favorites)), 'watch_later': int(sum(1 for v in ids if v in watch_later and v not in favorites)),
                             'unlabeled_weak_negatives': int(sum(y == 0))}},
         'dropoff_survival_S(fraction)': km(km_rows),
         'parameters': {k: {'prior_mean': PRIORS[k][0], 'prior_sd': PRIORS[k][1], 'fitted': round(float(beta[j]), 3), 'se': round(float(se[j]), 3),
                            'moved_prior_sds': round(float((beta[j] - PRIORS[k][0]) / PRIORS[k][1]), 2)} for j, k in enumerate(PRIORS)},
         'feature_correlation': {f'{FEATURES[a]}~{FEATURES[b]}': round(float(np.corrcoef(raw[:, a], raw[:, b])[0, 1]), 2)
-                                for a in range(5) for b in range(a + 1, 5)},
+                                for a in range(len(FEATURES)) for b in range(a + 1, len(FEATURES))},
         'leave_one_out': loo,
         'favorites_check': {stories[v]['title'][:60]: {k: stories[v][k] for k in ('opens', 'days', 'completed', 'abandoned', 'censored', 'duration')} | {'p_enjoy': round(float(probs[ids.index(v)]), 3), 'rank': int(list(order).index(ids.index(v)) + 1)} for v in ids if v in favorites},
         'top_bt_entities': sorted(((e, round(t, 2)) for e, t in theta.items()), key=lambda x: -abs(x[1]))[:12],
@@ -237,10 +238,9 @@ def main():
         'model': {'weights': {k: round(float(beta[j]), 4) for j, k in enumerate(PRIORS)},
                   'feature_mean': dict(zip(FEATURES, map(float, mean))), 'feature_sd': dict(zip(FEATURES, map(float, sd))),
                   'positive_labels': int(len(pos)), 'loo_mrr': loo['fitted model']['mrr'], 'baseline_open_count_mrr': loo['open count']['mrr']},
-        'entity_theta': {e: round(t, 4) for e, t in theta.items() if abs(t) >= 0.01},
-        'stories': {v: {'behavior_logit': round(float(contrib[i].sum()), 4), 'return_days': stories[v]['days'], 'opens': stories[v]['opens'],
-                        'completed': stories[v]['completed'], 'skipped': stories[v]['abandoned'],
-                        'p_complete': round(float(p_complete[v]), 3), 'skip_rate': round(float(skip_rate[v]), 3)}
+        'entity_theta': {},
+        'stories': {v: {'inference_version': 2, 'behavior_logit': round(float(np.clip(contrib[i].sum()*0.1,-0.25,0.25)), 4), 'return_days': stories[v]['days'], 'opens': stories[v]['opens'],
+                        'timing_diagnostics': {'inferred_completed': stories[v]['completed'], 'inferred_abandoned': stories[v]['abandoned'], 'uncertain': True}}
                     for i, v in enumerate(ids)}}
     (ROOT / 'research/behavior-signals.json').write_text(json.dumps(signals, ensure_ascii=False, indent=1), encoding='utf-8')
     (ROOT / 'research/preference-model.json').write_text(json.dumps(result, ensure_ascii=False, indent=2, default=str), encoding='utf-8')
@@ -248,4 +248,5 @@ def main():
     print('top predictions:'); [print(' ', r['p_enjoy'], '*' if r['labelled'] else ' ', r['title']) for r in result['top_predictions']]
 
 if __name__ == '__main__':
+    if hasattr(sys.stdout, 'reconfigure'): sys.stdout.reconfigure(encoding='utf-8')
     main()
