@@ -16,3 +16,4 @@ node_modules/
 website/release/
 website/qa-*.png
 research/model-fit-log.txt
+research/kaggle/
