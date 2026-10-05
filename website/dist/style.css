@@ -24,3 +24,4 @@ body{background:var(--bg)}header{position:relative;inset:auto;width:auto;max-wid
 .cards{scrollbar-width:none}
 .cards::-webkit-scrollbar{display:none}
 .actions .dislike-button{font-size:22px;line-height:1;width:42px;height:38px;padding:4px;border-radius:50%}
+footer{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}.copyright{margin-left:auto;white-space:nowrap;color:#cbb98f}.about-page>section:not(.intro){max-width:1000px}.about-page>section:not(.intro)>h2{font-family:Georgia,serif;font-weight:normal}.about-page>section:not(.intro)>p:not(.eyebrow){color:var(--muted);max-width:800px}.about-page .intro{min-height:340px}

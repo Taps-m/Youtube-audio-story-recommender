@@ -2,7 +2,7 @@
 from pathlib import Path
 import json,zipfile
 ROOT=Path(__file__).resolve().parent
-ALLOWED={'index.html','style.css','app.js','recommendations.js','discovery-catalog.json'}
+ALLOWED={'index.html','about.html','style.css','app.js','recommendations.js','discovery-catalog.json'}
 def validate(directory):
  files=[p for p in directory.rglob('*') if p.is_file()]
  if any(p.is_symlink() for p in directory.rglob('*')):raise ValueError('Symlinks are not allowed in deployment.')

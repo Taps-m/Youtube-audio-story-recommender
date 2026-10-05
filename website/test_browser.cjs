@@ -1,7 +1,7 @@
 const {chromium}=require('C:/Users/dasta/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
 const assert=require('node:assert/strict');
 (async()=>{
- const browser=await chromium.launch({channel:'msedge',headless:true});const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const browser=await chromium.launch({channel:'msedge',headless:true});const page=await browser.newPage({reducedMotion:'reduce'});const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto('http://127.0.0.1:8082/');await page.waitForSelector('#favorites .card');
  assert.equal(await page.getByRole('button',{name:/^Save:/}).count(),0);assert.equal(await page.locator('#collection option[value=saved]').count(),0);
  const source=page.locator('#favorites .card').first(),id=await source.getAttribute('data-video');
@@ -22,10 +22,11 @@ const assert=require('node:assert/strict');
  await first.getByRole('button',{name:/Not for me/}).click();await page.selectOption('#collection','hidden');
  assert.equal(await page.locator('#history .card[data-video="'+hiddenId+'"]').count(),1);
  await page.getByRole('button',{name:/Restore story/}).click();assert.equal(await page.locator('#history .card').count(),0);
- await page.selectOption('#collection','all');await page.locator('#show-more').click();assert.equal(await page.locator('#history .card').count(),18);
+ await page.selectOption('#collection','all');assert(await page.locator('#history .card').count()>18);assert.equal(await page.locator('#show-more').count(),0);
  const discovery=page.locator('#discoveries .card').first(),heardId=await discovery.getAttribute('data-video');
  await discovery.getByRole('button',{name:/Already heard/}).click();assert.equal(await page.locator('#discoveries .card[data-video="'+heardId+'"]').count(),0);
  await page.reload();await page.waitForSelector('#favorites .card');assert.equal(await page.locator('#discoveries .card[data-video="'+heardId+'"]').count(),0);
  await page.setViewportSize({width:390,height:844});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
  assert.deepEqual(errors,[]);await browser.close();console.log('Passed similar genres, source exclusion, focus, hide/restore, show more, heard persistence, Save removal and mobile checks.');
 })().catch(e=>{console.error(e);process.exit(1)});
+

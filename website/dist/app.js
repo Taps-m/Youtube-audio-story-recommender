@@ -8,9 +8,9 @@ async function boot(){
   try{const response=await fetch('/__private/model',{cache:'no-store'});if(response.ok)model=await response.json();}catch{/* Behavior model is optional. */}
  }
  catalog=[...new Map(catalog.filter(s=>/^[\w-]{11}$/.test(s.video_id)&&typeof s.title==='string').map(s=>[s.video_id,engine.enrich(s)])).values()];
- const KEY='story-compass-feedback-v1';let feedback={},storageAvailable=true,limit=9,similarSeed=null,similarLimit=6;
+ const KEY='story-compass-feedback-v1';let feedback={},storageAvailable=true,similarSeed=null;
  const similarSection=document.createElement('section');similarSection.id='similar-section';similarSection.hidden=true;
- similarSection.innerHTML='<div class="section-head"><h2 id="similar-heading" tabindex="-1">Similar stories</h2><button id="clear-similar" type="button">Back to recommendations</button></div><p id="similar-context" class="muted"></p><div id="similar-results" class="cards"></div><button id="more-similar" type="button" hidden>Show more similar stories</button>';
+ similarSection.innerHTML='<div class="section-head"><h2 id="similar-heading" tabindex="-1">Similar stories</h2><button id="clear-similar" type="button">Back to recommendations</button></div><p id="similar-context" class="muted"></p><div id="similar-results" class="cards"></div>';
  document.querySelector('.workspace').after(similarSection);
  // Each row supports touch/trackpad scrolling, keyboard navigation and arrows.
  for(const row of document.querySelectorAll('.cards')){
@@ -66,7 +66,7 @@ async function boot(){
    if(field==='liked'){b.className='heart-button';b.title=selected?'Remove like':'Like this story';}
    if(field==='disliked'){b.className='dislike-button';b.title='Not for me';}
    b.dataset.video=s.video_id;b.dataset.action=field;b.setAttribute('aria-label',label+': '+s.title);if(field!=='restore'&&field!=='similar')b.setAttribute('aria-pressed',String(selected));
-   b.onclick=()=>{if(field==='similar'){similarSeed=s;similarLimit=6;$('genre').value='all';$('collection').value='all';render();$('similar-heading').focus({preventScroll:true});similarSection.scrollIntoView({block:'start',behavior:'instant'});$('status').textContent='Showing similar genres. Your duration preference is still applied.';return;}
+   b.onclick=()=>{if(field==='similar'){similarSeed=s;$('genre').value='all';$('collection').value='all';render();$('similar-heading').focus({preventScroll:true});similarSection.scrollIntoView({block:'start',behavior:'instant'});$('status').textContent='Showing similar genres. Your duration preference is still applied.';return;}
     const f=feedback[s.video_id]||={};if(field==='restore')f.disliked=false;else f[field]=!f[field];if(field==='liked'&&f.liked)f.disliked=false;if(field==='disliked'&&f.disliked)f.liked=false;persist();render({video:s.video_id,action:field});
     const message=field==='restore'?'Story restored.':field==='liked'?(f.liked?'Liked. Your recommendations have been updated.':'Like removed.'):field==='saved'?(f.saved?'Saved. Find it under Collection → Saved for later.':'Removed from Saved for later.'):field==='heard'?(f.heard?'Marked already heard. Removed from new discoveries and ranked after unheard stories.':'Already heard mark removed.'):'Story hidden. Restore it under Collection → Hidden stories.';
     $('status').textContent=message+(storageAvailable?'':' Browser storage is unavailable; this change lasts for this session.');
@@ -83,19 +83,18 @@ async function boot(){
    const matches=engine.similar(similarSeed,items,feedback),container=$('similar-results');container.replaceChildren();
    $('similar-heading').textContent='More like '+similarSeed.title.replace(/^Sunday Suspense(?: Classics)?\s*\|\s*/,'').split('|')[0].trim();
    $('similar-context').textContent='Similar genres: '+(similarSeed.title_keyword_tags.join(', ')||'not yet identified')+'. The source story is excluded. Already-heard stories appear last.';
-   matches.slice(0,similarLimit).forEach(match=>{const el=card(match.story,p);el.querySelector('.reason').textContent='Same genre: '+match.shared.join(', ')+(match.series.length?' · Same series: '+match.series.join(', '):'')+'.';container.append(el);});
+   matches.forEach(match=>{const el=card(match.story,p);el.querySelector('.reason').textContent='Same genre: '+match.shared.join(', ')+(match.series.length?' · Same series: '+match.series.join(', '):'')+'.';container.append(el);});
    if(!matches.length){const empty=document.createElement('p');empty.className='empty';empty.textContent='No similar genres in the current catalog with these controls. Try Any length or another story.';container.append(empty);}
-   $('more-similar').hidden=matches.length<=similarLimit;
   }
   const visible=items.filter(s=>!feedback[s.video_id]?.disliked),hidden=collection==='hidden';
   const favorites=hidden?[]:visible.filter(s=>s.confirmed_favorite);
   const discoveries=hidden?[]:engine.rank(visible.filter(s=>s.eligible_as_new_discovery&&!feedback[s.video_id]?.heard),p,feedback,{explore:true,seed:today,diversify:true});
   const allHistory=hidden?engine.rank(items.filter(s=>feedback[s.video_id]?.disliked),p,feedback):engine.rank(visible.filter(s=>!s.confirmed_favorite&&(!s.eligible_as_new_discovery||feedback[s.video_id]?.heard)),p,feedback);
-  for(const [id,list] of [['favorites',favorites],['discoveries',discoveries.slice(0,6)],['history',allHistory.slice(0,limit)]]){
+  for(const [id,list] of [['favorites',favorites],['discoveries',discoveries],['history',allHistory]]){
    const container=$(id);container.replaceChildren();if(!list.length){const message=document.createElement('p');message.className='empty';message.textContent=id==='discoveries'?'No new candidates match these controls. Try another story type.':hidden&&id==='history'?'No hidden stories.':'No stories match these controls.';container.append(message);}else list.forEach(s=>container.append(card(s,p,hidden&&id==='history')));
   }
   $('history-heading').textContent=hidden?'Hidden stories':privateLoaded?'Pick up a familiar thread':'Stories you marked already heard';$('history-note').textContent=hidden?'Restore any story to bring it back.':privateLoaded?'Previously opened · enjoyment unconfirmed':'Based on feedback in this browser';
-  $('favorite-count').textContent=favorites.length+' shown';$('show-more').hidden=allHistory.length<=limit;$('show-more').textContent='Show more ('+(allHistory.length-limit)+' remaining)';
+  $('favorite-count').textContent=favorites.length+' shown';
   for(const row of document.querySelectorAll('.cards'))row.scrollLeft=rowPositions.get(row.id)||0;
   if(focus){const next=[...document.querySelectorAll('.card')].find(c=>c.dataset.video===focus.video),button=next?[...next.querySelectorAll('button')].find(b=>b.dataset.action===focus.action):null;
    (button||$('collection')).focus({preventScroll:true});if(next&&oldTop!==undefined)window.scrollBy(0,next.getBoundingClientRect().top-oldTop);else window.scrollTo(0,scrollY);
@@ -104,10 +103,8 @@ async function boot(){
  const knownDurations=catalog.filter(s=>Number.isFinite(s.duration_minutes)&&s.duration_minutes>0).length;
  $('duration').disabled=!knownDurations;
  $('duration-note').textContent=knownDurations===catalog.length&&catalog.length?'Story durations fetched from YouTube.':knownDurations?'Duration filters include only records with verified duration.':'Duration filtering is unavailable until real durations are verified.';
- ['genre','duration','collection'].forEach(id=>$(id).addEventListener('change',()=>{limit=9;render();}));
- $('show-more').onclick=()=>{limit+=9;render();if($('show-more').hidden)$('history-heading').focus();else $('show-more').focus();};
+ ['genre','duration','collection'].forEach(id=>$(id).addEventListener('change',()=>{render();}));
  $('reset').onclick=()=>{feedback={};persist();render();$('status').textContent='Feedback cleared. Your confirmed favorites remain.';};render();
  $('clear-similar').onclick=()=>{similarSeed=null;render();$('genre').focus();};
- $('more-similar').onclick=()=>{similarLimit+=6;render();($('more-similar').hidden?$('similar-heading'):$('more-similar')).focus();};
 }
 boot().catch(()=>{document.getElementById('status').textContent='The catalog could not load. Refresh the page or check the local server.';});
