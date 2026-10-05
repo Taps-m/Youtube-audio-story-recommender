@@ -25,6 +25,58 @@ WATCH_LATER_WEIGHT = 0.5
 PRIORS = {  # name: (mean, sd) on standardized features
     'intercept': (-0.85, 1.0), 'return_days': (0.8, 0.5), 'recency': (0.3, 0.3)}
 FEATURES = list(PRIORS)[1:]
+# Optional terms, used only when their offline inputs exist. Unstandardized, on the same scale the site uses.
+EXTRA_PRIORS = {'embedding': (1.0, 0.5), 'llm': (0.5, 0.5)}
+LABEL_Y = {'loved': 1.0, 'fine': 0.5, 'not': 0.0}     # research/labels.json values
+LABEL_R = {'loved': 1.0, 'fine': 0.0, 'not': -1.0}
+IMPLICIT_R_CAP = 0.25   # an opened-only story moves the plot/mood term at most this much
+MIN_LLM_LABELS = 5      # delta is fitted only from labelled stories that have LLM scores
+
+def load_json(p, default):
+    try: return json.loads(Path(p).read_text(encoding='utf-8'))
+    except (OSError, ValueError): return default
+
+class Extras:
+    """Plot/mood embedding term and offline LLM term, computed exactly as website/dist/recommendations.js does.
+
+    emb(i) = sum_j w_ij (r_j - r_mean) / sum_j w_ij,  w_ij = max(0, cos_ij - baseline)
+    r_j = 1 favorite / labels.json value / capped return-day signal for opened-only stories.
+    The LLM column is filled only for stories you labelled, because the LLM saw your favorites.
+    """
+    def __init__(self, ids, stories, favorites, labels, days_mean, days_sd, neighbors_doc=None, llm_doc=None):
+        nd = load_json(ROOT / 'research/story-neighbors.json', {}) if neighbors_doc is None else neighbors_doc
+        ld = load_json(ROOT / 'research/llm-scores.json', {}) if llm_doc is None else llm_doc
+        self.ids, self.stories, self.fav, self.labels = ids, stories, favorites, labels
+        self.mu, self.sd = float(days_mean), float(days_sd) or 1.0
+        self.neigh, self.base = nd.get('neighbors', {}), float(nd.get('baseline', 0.0))
+        self.llm = ld.get('scores', {})
+        llm_labelled = sum(1 for v in ids if v in labels and v in self.llm)
+        self.names = (['embedding'] if self.neigh else []) + (['llm'] if llm_labelled >= MIN_LLM_LABELS else [])
+        known = [r for r in (self.r(v) for v in ids) if r is not None]
+        self.r_mean = float(np.mean(known)) if known else 0.0
+    def r(self, v, exclude=None):
+        if v != exclude:
+            if v in self.fav: return 1.0
+            if v in self.labels: return LABEL_R[self.labels[v]]
+        st = self.stories.get(v)
+        if not st: return None
+        return max(-1.0, min(1.0, (math.log1p(st['days']) - self.mu) / self.sd / 2)) * IMPLICIT_R_CAP
+    def emb(self, v, exclude=None):
+        num = den = 0.0
+        for j, c in self.neigh.get(v, []):
+            r = None if j == v else self.r(j, exclude)
+            if r is None: continue
+            w = max(0.0, float(c) - self.base)
+            num += w * (r - self.r_mean); den += w
+        return num / den if den else 0.0
+    def llm_logit(self, v):
+        sc = self.llm.get(v, {}).get('score')
+        if v not in self.labels or not isinstance(sc, (int, float)): return 0.0
+        return logit(min(0.98, max(0.02, sc)))
+    def columns(self, exclude=None):
+        cols = ([[self.emb(v, exclude) for v in self.ids]] if 'embedding' in self.names else []) + \
+               ([[self.llm_logit(v) for v in self.ids]] if 'llm' in self.names else [])
+        return np.array(cols, dtype=float).T if cols else np.zeros((len(self.ids), 0))
 
 SERIES = [('Byomkesh', r'byomkesh|ব্যোমকেশ', 'detective mystery', 'Saradindu Bandyopadhyay'),
           ('Feluda', r'feluda|ফেলুদা', 'detective mystery', 'Satyajit Ray'),
@@ -181,10 +233,17 @@ def main():
     ids = sorted(stories)
     raw = np.array([[math.log1p(stories[v]['days']), math.exp(-stories[v]['age_days'] / 90)] for v in ids])
     mean, sd = raw.mean(0), raw.std(0); sd[sd == 0] = 1
-    X = np.hstack([np.ones((len(ids), 1)), (raw - mean) / sd])
-    y = np.array([1.0 if v in favorites or v in watch_later else 0.0 for v in ids])
-    wt = np.array([1.0 if v in favorites else WATCH_LATER_WEIGHT if v in watch_later else PU_WEIGHT for v in ids])
-    m = np.array([PRIORS[k][0] for k in PRIORS]); s = np.array([PRIORS[k][1] for k in PRIORS])
+    Xb = np.hstack([np.ones((len(ids), 1)), (raw - mean) / sd])
+    labels = {k: v for k, v in load_json(ROOT / 'research/labels.json', {}).items() if v in LABEL_Y}
+    y = np.array([1.0 if v in favorites or v in watch_later else LABEL_Y[labels[v]] if v in labels else 0.0 for v in ids])
+    wt = np.array([1.0 if v in favorites or v in labels else WATCH_LATER_WEIGHT if v in watch_later else PU_WEIGHT for v in ids])
+    extras = Extras(ids, stories, favorites, labels, mean[0], sd[0])
+    design = lambda exclude=None: np.hstack([Xb, extras.columns(exclude)])
+    X = design()
+    names = list(PRIORS) + extras.names
+    m = np.array([PRIORS[k][0] for k in PRIORS] + [EXTRA_PRIORS[k][0] for k in extras.names])
+    s = np.array([PRIORS[k][1] for k in PRIORS] + [EXTRA_PRIORS[k][1] for k in extras.names])
+    nb = len(PRIORS)
     beta, cov = fit(X, y, wt, m, s); se = np.sqrt(np.diag(cov))
 
     # Leave-one-out on every positive, compared with baselines
@@ -200,20 +259,29 @@ def main():
             st = stories[v]; return sum((9 if f == 'series' else 7 if f == 'authors' else (0.5 if x == 'suspense' else 3)) * prof[(f, x)]
                                         for f in ('series', 'authors', 'genres') for x in st[f])
         return np.array([sc(v) for v in ids])
-    methods = {'fitted model': None, 'priors only (no fit)': lambda i: X @ m, 'open count': lambda i: np.array([stories[v]['opens'] for v in ids], float),
+    methods = {'fitted model': None, **({'fitted model without plot/LLM terms': 'base'} if extras.names else {}), 'priors only (no fit)': lambda i: X @ m, 'open count': lambda i: np.array([stories[v]['opens'] for v in ids], float),
                'current hand-tuned weights': handtuned}
     loo = {}
     for name, fn in methods.items():
         ranks = []
         for i in pos:
-            if fn is None:
-                w2 = wt.copy(); w2[i] = 0; b2, _ = fit(X, y, w2, m, s); scores = X @ b2
+            if fn is None or fn == 'base':
+                w2 = wt.copy(); w2[i] = 0
+                Xi = design(exclude=ids[i]) if fn is None else Xb   # held-out story stops counting as loved
+                b2, _ = fit(Xi, y, w2, m if fn is None else m[:nb], s if fn is None else s[:nb]); scores = Xi @ b2
             else: scores = fn(i)
             others = [j for j in range(len(ids)) if j == i or j not in pos]
             ranks.append(1 + sum(scores[j] > scores[i] for j in others) + 0.5 * sum(scores[j] == scores[i] for j in others if j != i))
         loo[name] = {'ranks': ranks, 'mrr': round(float(np.mean([1 / r for r in ranks])), 3),
                      'hit@10': round(float(np.mean([r <= 10 for r in ranks])), 2), 'median_rank': float(np.median(ranks))}
 
+    # Keep the plot/LLM terms only if they rank held-out loved stories better than the model without them.
+    extra_weights, extras_report = {}, {'used': extras.names, 'embedding_file': bool(extras.neigh), 'llm_scores': len(extras.llm),
+                                        'labels': len(labels)}
+    if extras.names:
+        keep = loo['fitted model']['mrr'] >= loo['fitted model without plot/LLM terms']['mrr']
+        extra_weights = {k: round(float(beta[nb + j]), 4) if keep else 0.0 for j, k in enumerate(extras.names)}
+        extras_report.update(kept=keep, weights=extra_weights)
     probs = sigmoid(X @ beta); order = np.argsort(-probs)
     result = {
         'note': 'Private. Gap-derived completion and abandonment are uncertain diagnostics, not observed listening outcomes. Ranking uses only weak return-day and recency signals. Do not publish.',
@@ -222,8 +290,9 @@ def main():
                  'labels': {'favorites': int(sum(1 for v in ids if v in favorites)), 'watch_later': int(sum(1 for v in ids if v in watch_later and v not in favorites)),
                             'unlabeled_weak_negatives': int(sum(y == 0))}},
         'dropoff_survival_S(fraction)': km(km_rows),
-        'parameters': {k: {'prior_mean': PRIORS[k][0], 'prior_sd': PRIORS[k][1], 'fitted': round(float(beta[j]), 3), 'se': round(float(se[j]), 3),
-                           'moved_prior_sds': round(float((beta[j] - PRIORS[k][0]) / PRIORS[k][1]), 2)} for j, k in enumerate(PRIORS)},
+        'parameters': {k: {'prior_mean': float(m[j]), 'prior_sd': float(s[j]), 'fitted': round(float(beta[j]), 3), 'se': round(float(se[j]), 3),
+                           'moved_prior_sds': round(float((beta[j] - m[j]) / s[j]), 2)} for j, k in enumerate(names)},
+        'plot_llm_terms': extras_report,
         'feature_correlation': {f'{FEATURES[a]}~{FEATURES[b]}': round(float(np.corrcoef(raw[:, a], raw[:, b])[0, 1]), 2)
                                 for a in range(len(FEATURES)) for b in range(a + 1, len(FEATURES))},
         'leave_one_out': loo,
@@ -232,10 +301,10 @@ def main():
         'top_predictions': [{'title': stories[ids[i]]['title'][:70], 'p_enjoy': round(float(probs[i]), 3), 'labelled': bool(y[i])} for i in order[:15]],
     }
     # Behavior signals consumed by the local site (served from research/, never from dist/)
-    contrib = (X[:, 1:] * beta[1:])
+    contrib = (X[:, 1:nb] * beta[1:nb])
     signals = {
         'note': 'Private: derived from personal watch history. Served only by website/serve_local.py.',
-        'model': {'weights': {k: round(float(beta[j]), 4) for j, k in enumerate(PRIORS)},
+        'model': {'weights': {**{k: round(float(beta[j]), 4) for j, k in enumerate(PRIORS)}, **extra_weights}, 'r_mean': round(extras.r_mean, 4),
                   'feature_mean': dict(zip(FEATURES, map(float, mean))), 'feature_sd': dict(zip(FEATURES, map(float, sd))),
                   'positive_labels': int(len(pos)), 'loo_mrr': loo['fitted model']['mrr'], 'baseline_open_count_mrr': loo['open count']['mrr']},
         'entity_theta': {},

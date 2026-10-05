@@ -1,0 +1,4 @@
+# Offline research tools (run on your own PC, not needed by the website)
+numpy>=1.24
+yt-dlp>=2025.1.1
+sentence-transformers>=3.0

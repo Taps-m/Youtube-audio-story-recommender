@@ -8,10 +8,23 @@ SIGNALS=ROOT.parent/'research/behavior-signals.json'
 def signals():
  try:return json.loads(SIGNALS.read_text(encoding='utf-8'))
  except (OSError,ValueError):return {}
+NEIGHBORS=ROOT.parent/'research/story-neighbors.json'
+LLM=ROOT.parent/'research/llm-scores.json'
+TEXT=ROOT.parent/'research/story-text.json'
+def load(path):
+ try:return json.loads(path.read_text(encoding='utf-8'))
+ except (OSError,ValueError):return {}
 def private_catalog():
  rows=json.loads(PRIVATE.read_text(encoding='utf-8'));stories=signals().get('stories',{})
+ neighbors=load(NEIGHBORS);llm=load(LLM).get('scores',{});titles={**{r.get('video_id'):r.get('title','') for r in rows},**{k:v.get('title','') for k,v in load(TEXT).items() if v.get('title')}}
  for row in rows:
-  if row.get('video_id') in stories:row['behavior']=stories[row['video_id']]
+  v=row.get('video_id')
+  if v in stories:row['behavior']=stories[v]
+  # Plot/mood neighbors (build_story_embeddings.py); return_days lets the page weigh neighbors outside the catalog.
+  if v in neighbors.get('neighbors',{}):
+   row['neighbors']=[{'id':j,'cos':c,'return_days':stories.get(j,{}).get('return_days'),'title':titles.get(j,'')} for j,c in neighbors['neighbors'][v]]
+   row['neighbor_baseline']=neighbors.get('baseline',0)
+  if v in llm:row['llm']=llm[v]  # offline LLM score and reason (llm_rerank.py)
  return rows
 class Handler(SimpleHTTPRequestHandler):
  def end_headers(self):

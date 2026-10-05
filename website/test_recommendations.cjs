@@ -87,4 +87,45 @@ const s2={...related,video_id:'related0002'},s3={...unrelated,video_id:'other000
 const div=e.rank([related,s2,s3],p,{},{diversify:true});
 assert.notDeepEqual(div[0].series,div[1].series,'Second slot goes to a different series');
 
-console.log('Passed tagging, probability scoring, feedback overrides, IDF, behavior, head-to-head, Thompson sampling and diversity checks.');
+// Stage 1 plot/mood embedding term
+const plain2=(id,extra={})=>({...e.enrich({video_id:id,title:'Story '+id,channel:'C'}),...extra});
+const lovedN=plain2('lovednb0001',{confirmed_favorite:true}),hatedN=plain2('hatednb0001');
+const near=(ids)=>ids.map(([id,cos,title])=>({id,cos,title:title||id}));
+const candA=plain2('candidate01',{neighbors:near([['lovednb0001',0.9,'Sunday Suspense | Rakter Daag | x']]),neighbor_baseline:0.6});
+const candB=plain2('candidate02',{neighbors:near([['hatednb0001',0.9]]),neighbor_baseline:0.6});
+const candC=plain2('candidate03');
+const embCat=[lovedN,hatedN,candA,candB,candC];
+const ep=e.profile(embCat,{hatednb0001:{disliked:true}},{model:{weights:{embedding:1},r_mean:0}});
+const ev=s=>e.evaluate(s,ep,{hatednb0001:{disliked:true}});
+assert(ev(candA).embedding>0,'Neighbor of a loved story gets a positive plot/mood term');
+assert(ev(candB).embedding<0,'Neighbor of a disliked story gets a negative term');
+assert.equal(ev(candC).embedding,0,'No neighbors means no embedding term');
+assert(ev(candA).score>ev(candC).score&&ev(candC).score>ev(candB).score);
+assert.equal(ev(candA).reason,'Similar in plot and mood to Rakter Daag.');
+const belowBase=plain2('candidate04',{neighbors:near([['lovednb0001',0.5]]),neighbor_baseline:0.6});
+assert.equal(ev(belowBase).embedding,0,'Similarity below the baseline carries no weight');
+const offCatalog=plain2('candidate05',{neighbors:[{id:'notincat001',cos:0.9,return_days:50,title:'x'}],neighbor_baseline:0.6});
+const offTerm=ev(offCatalog).embedding;assert(offTerm>0&&offTerm<=0.25+1e-9,'Opened-only neighbors count at most 0.25');
+const gamma0=e.profile(embCat,{},{model:{weights:{embedding:0}}});
+assert.equal(e.evaluate(candA,gamma0,{}).embedding,0,'A fitted gamma of 0 switches the term off');
+const liveLike=e.profile(embCat,{candidate03:{liked:true}},{});
+const cD=plain2('candidate06',{neighbors:near([['candidate03',0.9]]),neighbor_baseline:0.6});
+assert(e.evaluate(cD,liveLike,{candidate03:{liked:true}}).embedding>e.evaluate(cD,e.profile(embCat,{},{}),{}).embedding,'A new like updates neighbors immediately');
+
+// Stage 2 LLM rerank: only the top candidates, only with offline scores
+const twin=(id,llm)=>plain2(id,llm?{llm}:{});
+const hi=twin('llmzhigh001',{score:0.95,reason:'Atmospheric hill-station mystery like Feluda.'}),lo=twin('llmlow00001',{score:0.05,reason:'x'});
+const lp=e.profile([hi,lo],{},{});
+assert.equal(e.rank([lo,hi],lp,{})[0].video_id,'llmzhigh001','LLM score lifts a story Stage 1 placed second');
+assert.equal(e.rank([lo,hi],lp,{},{stage2:false})[0].video_id,'llmlow00001','stage2:false keeps Stage 1 order');
+assert.equal(e.evaluate(hi,lp,{}).llm,0,'Card probabilities stay Stage 1 unless stage2 is requested');
+assert(e.evaluate(hi,lp,{},{stage2:true}).score>e.evaluate(hi,lp,{}).score);
+assert.match(e.evaluate(hi,lp,{}).reason,/^AI-reviewed: Atmospheric/);
+const many2=Array.from({length:25},(_,i)=>twin('fill'+String(i).padStart(7,'0')));
+const tail=twin('zzzzlast001',{score:0.98,reason:'y'});
+const pp=e.profile([...many2,tail],{},{});
+assert.equal(e.rank([...many2,tail],pp,{}).at(-1).video_id,'zzzzlast001','Candidates outside the top 20 are not lifted by the LLM');
+const heardHi={...hi,video_id:'llmheard001'};
+assert.equal(e.rank([heardHi,lo],lp,{llmheard001:{heard:true}})[0].video_id,'llmlow00001','Heard stories stay after unheard ones');
+
+console.log('Passed tagging, probability scoring, feedback overrides, IDF, behavior, head-to-head, Thompson sampling and diversity, plot/mood embedding and LLM rerank checks.');

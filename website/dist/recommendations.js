@@ -26,6 +26,11 @@
  const TYPE_WEIGHT={series:1,author:0.8,genre:0.5,channel:0.3};
  const EXPLICIT_LOGIT={liked:2,saved:0.7};
  const THETA_WEIGHT=0.5,STRONG_EVIDENCE=4;
+ // Stage 1 plot/mood term and Stage 2 LLM rerank, both computed offline (build_story_embeddings.py, llm_rerank.py):
+ //   emb(i) = gamma * sum_j w_ij (r_j - r_mean) / sum_j w_ij,  w_ij = max(0, cos_ij - baseline)
+ //   logit P_final(i) = logit P(i) + delta * logit(s_LLM(i))   for the top RERANK_TOP unheard candidates
+ // r_j: favorite or "More like this" 1, "Not for me" -1, Save 0.5, opened-only stories at most +/-0.25.
+ const EMB_DEFAULT=1,LLM_DEFAULT=0.5,RERANK_TOP=20,IMPLICIT_R_CAP=0.25;
  const clamp=(x,lo,hi)=>Math.min(hi,Math.max(lo,x)),logit=p=>Math.log(p/(1-p)),sigmoid=x=>1/(1+Math.exp(-x));
  function entities(s){
   return [...(s.series||[]).map(v=>['series',v]),...(s.authors||[]).map(v=>['author',v]),
@@ -52,7 +57,28 @@
   // Backwards-compatible views used by older callers and tests.
   const view=type=>new Map([...beliefs.values()].filter(b=>b.type===type&&b.a>b.b).map(b=>[b.value,b.a-b.b]));
   const base=clamp((1+totalPos)/(2+totalPos+totalNeg),0.05,0.95);
-  return {beliefs,idf,theta,base,series:view('series'),authors:view('author'),tags:view('genre')};
+  const fitted=model?.model||{},w=fitted.weights||{};
+  const p={beliefs,idf,theta,base,series:view('series'),authors:view('author'),tags:view('genre'),
+   gamma:Number.isFinite(w.embedding)?w.embedding:EMB_DEFAULT,delta:Number.isFinite(w.llm)?w.llm:LLM_DEFAULT,
+   rbar:Number.isFinite(fitted.r_mean)?fitted.r_mean:0,daysMean:fitted.feature_mean?.return_days,daysSd:fitted.feature_sd?.return_days,rIndex:new Map()};
+  for(const s of catalog){const r=signalR(s,feedback[s.video_id]||{},p);if(r!==null)p.rIndex.set(s.video_id,r);}
+  return p;
+ }
+ function implicitR(days,p){
+  if(!Number.isFinite(days))return null;
+  const mu=Number.isFinite(p.daysMean)?p.daysMean:Math.log1p(1),sd=p.daysSd>0?p.daysSd:0.3;
+  return clamp((Math.log1p(Math.max(days,0))-mu)/sd/2,-1,1)*IMPLICIT_R_CAP;
+ }
+ function signalR(s,f,p){if(f.disliked)return -1;if(s.confirmed_favorite||f.liked)return 1;if(f.saved)return 0.5;return implicitR(s.behavior?.return_days,p);}
+ function embTerm(s,p){
+  let num=0,den=0,best=null;
+  for(const n of Array.isArray(s.neighbors)?s.neighbors:[]){
+   if(!n||n.id===s.video_id)continue;
+   const r=p.rIndex?.has(n.id)?p.rIndex.get(n.id):implicitR(n.return_days,p);if(r===null)continue;
+   const wt=Math.max(0,(Number(n.cos)||0)-(Number(s.neighbor_baseline)||0));if(!wt)continue;
+   const c=wt*(r-(p.rbar||0));num+=c;den+=wt;if(r>0&&(!best||c>best.c))best={c,title:String(n.title||'')};
+  }
+  return {value:den?(p.gamma??EMB_DEFAULT)*num/den:0,best};
  }
  // Seeded random numbers so exploration is stable within a day instead of reshuffling on every click.
  function rng(seed){let h=1779033703^seed.length;for(let i=0;i<seed.length;i++){h=Math.imul(h^seed.charCodeAt(i),3432918353);h=h<<13|h>>>19;}
@@ -75,7 +101,9 @@
   const hasExplicit=s.confirmed_favorite||f.liked||f.saved||f.disliked;
   const behavior=!hasExplicit&&s.behavior?.inference_version===2?clamp(s.behavior.behavior_logit||0,-0.25,0.25):0;
   const explicit=(f.liked?EXPLICIT_LOGIT.liked:0)+(f.saved?EXPLICIT_LOGIT.saved:0);
-  const z=content+behavior+explicit;
+  const emb=embTerm(s,p);
+  const llm=options.stage2&&Number.isFinite(s.llm?.score)?(p.delta??LLM_DEFAULT)*logit(clamp(s.llm.score,0.02,0.98)):0;
+  const z=content+behavior+explicit+emb.value+llm;
   const probability=f.disliked?Math.min(sigmoid(z),0.05):s.confirmed_favorite?Math.max(sigmoid(z),0.95):f.liked?Math.max(sigmoid(z),0.85):sigmoid(z);
   matches.sort((a,b)=>b.term-a.term);const top=matches[0];
   const strong=top&&top.evidence>=STRONG_EVIDENCE;
@@ -83,22 +111,32 @@
   if(f.disliked)reason='You marked this story not for you.';
   else if(s.confirmed_favorite)reason='From your YouTube history.';
   else if(f.liked)reason='You asked for more like this.';
+  else if(probability>=0.5&&s.llm?.score>=0.6&&s.llm.reason)reason='AI-reviewed: '+String(s.llm.reason).slice(0,160);
   else if(behavior>0&&behavior>=(top?.term||0))reason='Your history records openings on '+s.behavior.return_days+' different days. This is a weak interest signal.';
+  else if(probability>=0.5&&emb.value>0&&emb.best?.title&&emb.value>=(top?.term||0))reason='Similar in plot and mood to '+shortTitle(emb.best.title)+'.';
   else if(top&&top.term>0&&probability<0.5)reason='Mixed match: you like '+top.value+', but other signals for this story are weaker.';
   else if(top&&top.term>0)reason=(strong?'Strong match: ':'Worth a try: ')+(top.type==='author'?'you enjoy stories by ':'you like ')+top.value+(strong?'.':', and we are still learning your taste here.');
   else reason='A different story to explore beyond your usual matches.';
   if(f.heard)reason+=' You marked it already heard, so it appears after unheard choices.';
-  return {score:probability,logit:z,probability,reason,confidence:strong?'strong':'learning',matches};
+  return {score:probability,logit:z,probability,reason,confidence:strong?'strong':'learning',matches,embedding:emb.value,llm};
  }
  function rank(items,p,feedback,options={}){
   const scored=items.map(s=>({s,score:evaluate(s,p,feedback,options).score,heard:Number(!!feedback[s.video_id]?.heard)}));
-  scored.sort((a,b)=>a.heard-b.heard||b.score-a.score||a.s.title.localeCompare(b.s.title));
+  const order=(a,b)=>a.heard-b.heard||b.score-a.score||a.s.title.localeCompare(b.s.title);
+  scored.sort(order);
+  // Stage 2: rerank the top unheard candidates with offline LLM scores, if any were prepared.
+  const head=scored.filter(x=>!x.heard).slice(0,RERANK_TOP);
+  if(options.stage2!==false&&head.some(x=>Number.isFinite(x.s.llm?.score))){
+   for(const x of head)x.score=evaluate(x.s,p,feedback,{...options,stage2:true}).score;
+   head.sort(order);scored.splice(0,head.length,...head);
+  }
   return options.diversify?diversify(scored.map(x=>x.s)):scored.map(x=>x.s);
  }
  // Light diversity: avoid two stories from the same series back to back near the top.
  function diversify(list){const out=[],rest=[...list];
   while(rest.length){const last=out[out.length-1],i=last?rest.findIndex(s=>!(s.series||[]).some(x=>(last.series||[]).includes(x))):0;out.push(rest.splice(i<0?0:i,1)[0]);}
   return out;}
+ function shortTitle(t){return String(t).replace(/^(?:Best of )?Sunday Suspense(?: Classics)?\s*\|\s*/i,'').split('|')[0].trim().slice(0,60);}
  function similar(seed,items,feedback){
   const tags=seed.title_keyword_tags||[];
   return items.filter(s=>s.video_id!==seed.video_id&&!feedback[s.video_id]?.disliked).map(s=>{

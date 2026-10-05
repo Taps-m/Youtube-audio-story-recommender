@@ -19,3 +19,5 @@ Run `python fetch_durations.py` after catalog preparation to retrieve missing du
 Deploy only the ZIP produced by `python website/package_deploy.py`. The packager rejects every unapproved file and catalog field. It never packages the private endpoint or local profile. Do not upload the repository root. Public deployment intentionally has no personal history profile.
 
 Checks: `node website/test_recommendations.cjs` and `python website/test_deploy.py`. No live AI, accounts or embedded playback yet.
+
+Optional offline terms: when research/story-neighbors.json exists, each story gains a plot/mood term gamma * sum_j w_ij (r_j - r_mean) / sum_j w_ij with w_ij = max(0, cosine - baseline); r_j is 1 for favorites and likes, -1 for Not for me, 0.5 for Save and at most +/-0.25 for opened-only stories, so a new click updates neighbors immediately. When research/llm-scores.json exists, the top 20 unheard candidates are reranked with delta * logit(LLM score), and high-scoring cards show an "AI-reviewed" reason. No LLM is called by the site.
