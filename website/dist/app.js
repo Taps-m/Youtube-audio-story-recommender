@@ -62,8 +62,9 @@ async function boot(){
   for(const [field,label] of buttons){
    const b=document.createElement('button');b.type='button';
    const selected=!!feedback[s.video_id]?.[field];
-   b.textContent=field==='liked'?(selected?'♥':'♡'):selected?({heard:'Already heard ✓'}[field]||label):label;
+   b.textContent=field==='liked'?(selected?'♥':'♡'):field==='disliked'?'👎':selected?({heard:'Already heard ✓'}[field]||label):label;
    if(field==='liked'){b.className='heart-button';b.title=selected?'Remove like':'Like this story';}
+   if(field==='disliked'){b.className='dislike-button';b.title='Not for me';}
    b.dataset.video=s.video_id;b.dataset.action=field;b.setAttribute('aria-label',label+': '+s.title);if(field!=='restore'&&field!=='similar')b.setAttribute('aria-pressed',String(selected));
    b.onclick=()=>{if(field==='similar'){similarSeed=s;similarLimit=6;$('genre').value='all';$('collection').value='all';render();$('similar-heading').focus({preventScroll:true});similarSection.scrollIntoView({block:'start',behavior:'instant'});$('status').textContent='Showing similar genres. Your duration preference is still applied.';return;}
     const f=feedback[s.video_id]||={};if(field==='restore')f.disliked=false;else f[field]=!f[field];if(field==='liked'&&f.liked)f.disliked=false;if(field==='disliked'&&f.disliked)f.liked=false;persist();render({video:s.video_id,action:field});

@@ -23,3 +23,4 @@ body{background:var(--bg)}header{position:relative;inset:auto;width:auto;max-wid
 /* Keep horizontal scrolling without displaying a scrollbar below the cards. */
 .cards{scrollbar-width:none}
 .cards::-webkit-scrollbar{display:none}
+.actions .dislike-button{font-size:22px;line-height:1;width:42px;height:38px;padding:4px;border-radius:50%}
