@@ -14,7 +14,11 @@ def main():
   frame=pd.concat(parts,ignore_index=True).dropna()
   return frame[frame.is_like.isin([0,1])].sort_values('time_ms')
  train=read('log_standard_4_08_to_4_21_1k.csv');test=read('log_standard_4_22_to_5_08_1k.csv')
- assert train.time_ms.max()<test.time_ms.min(),'Training and test dates overlap'
+ # Real logs have a small timestamp overlap despite their non-overlapping date labels.
+ # Derive the cutoff from training alone and discard earlier test events.
+ cutoff=int(train.time_ms.max())+1
+ overlap=int((test.time_ms<cutoff).sum());test=test[test.time_ms>=cutoff].copy()
+ assert not test.empty and train.time_ms.max()<test.time_ms.min(),'No strictly later test events'
  # Exclude every earlier exposure, not only earlier likes, from test candidates.
  liked=train[train.is_like==1].drop_duplicates(['user_id','video_id'])
  prepared=[];needed=set(liked.video_id.astype(int));excluded=Counter()
@@ -38,7 +42,7 @@ def main():
    metadata[str(int(row.video_id))]={'video_id':str(int(row.video_id)),'title':'Video '+str(int(row.video_id)),'title_keyword_tags':tags,'authors':authors,'series':[]}
  missing=needed-{int(v) for v in metadata}
  if missing:raise ValueError(f'Missing basic metadata for {len(missing)} videos')
- report={'source':'KuaiRand-1K, Kuaishou; CC BY-SA 4.0; Gao et al., CIKM 2022','requested_users':args.users,'training_users':int(train.user_id.nunique()),'training_interactions':len(train),'training_like_events':len(train[train.is_like==1]),'evaluated_users':len(prepared),'excluded_users':dict(excluded),'selection_seed':2026,'candidate_protocol':'Per-user up to 20 later liked and 20 later unliked videos; exclude all videos exposed in training. Test feedback is hidden from scoring. Cohort requires both labels. This balanced sampled pool is not the full catalog.'}
+ report={'source':'KuaiRand-1K, Kuaishou; CC BY-SA 4.0; Gao et al., CIKM 2022','requested_users':args.users,'training_users':int(train.user_id.nunique()),'training_interactions':len(train),'training_like_events':len(train[train.is_like==1]),'test_timestamp_cutoff_ms':cutoff,'overlapping_test_events_excluded':overlap,'evaluated_users':len(prepared),'excluded_users':dict(excluded),'selection_seed':2026,'candidate_protocol':'Per-user up to 20 later liked and 20 later unliked videos; exclude all videos exposed in training. Test feedback is hidden from scoring. Cohort requires both labels. This balanced sampled pool is not the full catalog.'}
  if not prepared:raise ValueError('No evaluable users')
  (out/'prepared.json').write_text(json.dumps({'metadata':report,'videos':metadata,'users':prepared}),encoding='utf-8')
  print(json.dumps(report,indent=2))
